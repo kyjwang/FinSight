@@ -94,6 +94,49 @@ After deployment, open the Vercel URL on your iPhone in Safari. To make it feel 
 
 The deployed web app needs `EXPO_PUBLIC_API_BASE_URL` to load real candles and call Kronos. Without it, the UI stays clean and shows setup states instead of fake market data.
 
+## Free Backend Deployment
+
+For an online backend that works when your computer is off, deploy the FastAPI service to a Hugging Face Docker Space.
+
+1. Create a Docker Space at `https://huggingface.co/spaces/kyjwang/finsight-api`.
+2. Push the latest FinSight code to GitHub, because the Space Dockerfile clones `https://github.com/kyjwang/FinSight.git`.
+3. Clone the Space repo locally:
+
+```bash
+git clone https://huggingface.co/spaces/kyjwang/finsight-api /tmp/finsight-api-space
+```
+
+4. Copy the prepared Space files:
+
+```bash
+cp deploy/huggingface-api/README.md /tmp/finsight-api-space/README.md
+cp deploy/huggingface-api/Dockerfile /tmp/finsight-api-space/Dockerfile
+```
+
+5. Commit and push the Space:
+
+```bash
+cd /tmp/finsight-api-space
+git add README.md Dockerfile
+git commit -m "Deploy FinSight FastAPI backend"
+git push
+```
+
+6. After Hugging Face finishes building, test:
+
+```text
+https://kyjwang-finsight-api.hf.space/health
+https://kyjwang-finsight-api.hf.space/docs
+```
+
+7. In Vercel, set:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=https://kyjwang-finsight-api.hf.space
+```
+
+Then redeploy the web app.
+
 ## Kronos Forecast Lab
 
 FinSight includes a Kronos-ready forecast flow on each symbol page:
