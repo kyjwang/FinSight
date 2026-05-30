@@ -1,0 +1,13 @@
+{
+  "buildCommand": "npm --workspace apps/mobile run web:export",
+  "outputDirectory": "apps/mobile/dist",
+  "devCommand": "npm --workspace apps/mobile run web:dev",
+  "cleanUrls": true,
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/:path*",
+      "destination": "/"
+    }
+  ]
+}

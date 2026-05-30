@@ -1,0 +1,33 @@
+{
+  "expo": {
+    "name": "FinSight Social",
+    "slug": "finsight-social",
+    "scheme": "finsight",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "dev.finsight.social"
+    },
+    "android": {
+      "package": "dev.finsight.social",
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F4ED"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "FinSight Social",
+      "shortName": "FinSight"
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

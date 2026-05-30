@@ -1,0 +1,24 @@
+{
+  "name": "finsight-social",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A social investing mobile app with chart-based market theses, realtime community features, and AI-assisted forecast overlays.",
+  "workspaces": [
+    "apps/mobile"
+  ],
+  "scripts": {
+    "mobile": "npm --workspace apps/mobile run start",
+    "mobile:ios": "npm --workspace apps/mobile run ios",
+    "mobile:android": "npm --workspace apps/mobile run android",
+    "mobile:test": "npm --workspace apps/mobile run test",
+    "web": "npm --workspace apps/mobile run web:dev",
+    "web:export": "npm --workspace apps/mobile run web:export",
+    "web:serve": "npm --workspace apps/mobile run web:serve",
+    "api": "uvicorn services.api.app.main:app --reload --host 0.0.0.0 --port 8000",
+    "api:test": "python3 -m pytest services/api/tests"
+  },
+  "engines": {
+    "node": ">=20.19.4",
+    "npm": ">=10"
+  }
+}
