@@ -1,7 +1,8 @@
 import { Asset, Candle, Forecast, Horizon, Stance } from "@/types";
 import { createForecast } from "./forecast";
 
-const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
+const defaultApiBaseUrl = process.env.NODE_ENV === "test" ? "" : "https://kyjwang-finsight-api.hf.space";
+const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || defaultApiBaseUrl;
 
 export async function fetchCandles(symbol: string, fallback: Candle[], horizon = "1M"): Promise<Candle[]> {
   if (!apiBaseUrl) return fallback;

@@ -92,7 +92,7 @@ The root `vercel.json` is already configured for this monorepo:
 
 After deployment, open the Vercel URL on your iPhone in Safari. To make it feel like an app, tap Share, then Add to Home Screen.
 
-The deployed web app needs `EXPO_PUBLIC_API_BASE_URL` to load real candles and call Kronos. Without it, the UI stays clean and shows setup states instead of fake market data.
+The deployed web app defaults to the hosted Hugging Face backend at `https://kyjwang-finsight-api.hf.space`. You can override it with `EXPO_PUBLIC_API_BASE_URL` if you deploy another backend.
 
 ## Free Backend Deployment
 
@@ -129,13 +129,13 @@ https://kyjwang-finsight-api.hf.space/health
 https://kyjwang-finsight-api.hf.space/docs
 ```
 
-7. In Vercel, set:
+7. In Vercel, optionally set:
 
 ```bash
 EXPO_PUBLIC_API_BASE_URL=https://kyjwang-finsight-api.hf.space
 ```
 
-Then redeploy the web app.
+Then redeploy the web app. The frontend also has this same URL as its default public backend, so this env var is mainly useful if you switch backend hosts later.
 
 ## Kronos Forecast Lab
 
@@ -146,7 +146,7 @@ FinSight includes a Kronos-ready forecast flow on each symbol page:
 3. Tap **Analyze with Kronos**.
 4. Review the forecast overlay, model card, lookback, provider status, and backtest metrics.
 
-The public web app requires `EXPO_PUBLIC_API_BASE_URL` for real market candles. If the API URL is missing, Kronos analysis cannot use real stock data and the app shows a setup message instead of fake candles. Forecast code still has a clearly labeled local fallback for API outages:
+The public web app uses the hosted Hugging Face API by default for real market candles. Forecast code still has a clearly labeled local fallback for API outages:
 
 ```text
 Kronos unavailable - FinSight Baseline
