@@ -8,7 +8,7 @@ type AppStateContextValue = {
   hydrated: boolean;
 };
 
-const storageKey = "finsight-demo-state-v1";
+const storageKey = "finsight-live-state-v2";
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 export function AppStateProvider({ children }: PropsWithChildren) {

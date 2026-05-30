@@ -1,22 +1,85 @@
 import { useLocalSearchParams } from "expo-router";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { ThesisCard } from "@/components/ThesisCard";
-import { demoAssets, demoCandles } from "@/data/demo";
 import { communitySentiment } from "@/lib/analytics";
+import { fetchCandles, requestKronosForecast, searchAssets } from "@/lib/api";
+import { assetFromSymbol, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { useAppState } from "@/state/AppState";
+import { Asset, Candle, Forecast, Horizon } from "@/types";
+
+const horizons: Horizon[] = ["1D", "1W", "1M"];
 
 export function SymbolScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
   const { state, dispatch } = useAppState();
-  const asset = demoAssets.find((item) => item.symbol === symbol) ?? demoAssets[0];
+  const normalizedSymbol = normalizeSymbol(symbol ?? "NVDA");
+  const [asset, setAsset] = useState<Asset>(assetFromSymbol(normalizedSymbol));
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [marketStatus, setMarketStatus] = useState("Loading real candles from the API...");
+  const [kronosHorizon, setKronosHorizon] = useState<Horizon>("1W");
+  const [kronosForecast, setKronosForecast] = useState<Forecast | null>(null);
+  const [kronosLoading, setKronosLoading] = useState(false);
+  const [kronosError, setKronosError] = useState("");
   const posts = state.posts.filter((post) => post.asset.symbol === asset.symbol);
   const fallbackPosts = posts.length > 0 ? posts : state.posts.slice(0, 2);
   const sentiment = communitySentiment(fallbackPosts);
   const watching = state.watchlistSymbols.includes(asset.symbol);
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadSymbol() {
+      setMarketStatus("Loading real candles from the API...");
+      setKronosForecast(null);
+      const [resolvedAsset] = await searchAssets(normalizedSymbol, [assetFromSymbol(normalizedSymbol)]);
+      const resolvedCandles = await fetchCandles(normalizedSymbol, []);
+
+      if (!active) return;
+
+      setAsset(resolvedAsset ?? assetFromSymbol(normalizedSymbol));
+      setCandles(resolvedCandles);
+      setMarketStatus(
+        resolvedCandles.length >= 8
+          ? `Loaded ${resolvedCandles.length} real candles from the API.`
+          : "No real candles loaded. Start FastAPI with yfinance installed, then refresh this symbol."
+      );
+    }
+
+    loadSymbol().catch(() => {
+      if (active) {
+        setCandles([]);
+        setMarketStatus("Market data request failed. Check that the FastAPI backend is running.");
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [normalizedSymbol]);
+
+  async function analyzeWithKronos() {
+    if (candles.length < 8) {
+      setKronosError("Load real candles before running Kronos.");
+      return;
+    }
+
+    setKronosLoading(true);
+    setKronosError("");
+
+    try {
+      const forecast = await requestKronosForecast(asset.symbol, candles, kronosHorizon);
+      setKronosForecast(forecast);
+    } catch {
+      setKronosError("Kronos analysis could not be completed. Try again after the API is running.");
+    } finally {
+      setKronosLoading(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -34,7 +97,8 @@ export function SymbolScreen() {
               </Text>
             </View>
           </View>
-          <CandlestickChart candles={demoCandles(asset.symbol)} />
+          <CandlestickChart candles={candles} />
+          <Text style={styles.marketStatus}>{marketStatus}</Text>
           <Pressable
             style={[styles.watchButton, watching && styles.watchButtonActive]}
             onPress={() => dispatch({ type: "toggleWatchlist", symbol: asset.symbol })}
@@ -50,8 +114,65 @@ export function SymbolScreen() {
           </View>
         </View>
 
+        <View style={styles.kronosPanel}>
+          <View>
+            <Text style={styles.kronosEyebrow}>Kronos Forecast Lab</Text>
+            <Text style={styles.kronosTitle}>Analyze future K-lines</Text>
+            <Text style={styles.kronosCopy}>
+              Sends up to 512 real historical candles to the FastAPI Kronos adapter. If Kronos is unavailable, FinSight
+              marks the result as a baseline fallback.
+            </Text>
+          </View>
+
+          <View style={styles.horizonRow}>
+            {horizons.map((item) => (
+              <Pressable
+                key={item}
+                style={[styles.horizonButton, item === kronosHorizon && styles.horizonButtonActive]}
+                onPress={() => setKronosHorizon(item)}
+              >
+                <Text style={[styles.horizonText, item === kronosHorizon && styles.horizonTextActive]}>{item}</Text>
+              </Pressable>
+            ))}
+          </View>
+
+          <Pressable style={[styles.kronosButton, candles.length < 8 && styles.disabledButton]} onPress={analyzeWithKronos} disabled={kronosLoading || candles.length < 8}>
+            <Text style={styles.kronosButtonText}>{kronosLoading ? "Analyzing..." : "Analyze with Kronos"}</Text>
+          </Pressable>
+
+          {kronosError ? <Text style={styles.kronosError}>{kronosError}</Text> : null}
+
+          {kronosForecast && (
+            <View style={styles.kronosResult}>
+              <CandlestickChart candles={candles} forecast={kronosForecast} />
+              <View style={styles.modelCard}>
+                <Text style={styles.modelName}>{kronosForecast.modelName}</Text>
+                <Text style={styles.modelCopy}>{kronosForecast.summary}</Text>
+                <View style={styles.modelGrid}>
+                  <ModelMetric label="Provider" value={kronosForecast.provider ?? "baseline"} />
+                  <ModelMetric label="Status" value={kronosForecast.providerStatus ?? "ready"} />
+                  <ModelMetric label="Lookback" value={`${kronosForecast.lookback ?? candles.length}`} />
+                </View>
+                <Text style={styles.modelCopy}>
+                  Backtest: {Math.round(kronosForecast.backtest.directionAccuracy * 100)}% direction accuracy ·{" "}
+                  {kronosForecast.backtest.meanAbsoluteError}% MAE.
+                </Text>
+                {kronosForecast.fallbackReason ? (
+                  <Text style={styles.fallbackReason}>{kronosForecast.fallbackReason}</Text>
+                ) : null}
+                <Text style={styles.disclaimer}>Scenario analysis only. Not financial advice.</Text>
+              </View>
+            </View>
+          )}
+        </View>
+
         <Text style={styles.sectionTitle}>Community theses</Text>
-        {fallbackPosts.map((post) => (
+        {fallbackPosts.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={styles.emptyTitle}>No theses for this symbol yet</Text>
+            <Text style={styles.kronosCopy}>Create a thesis after loading real candles.</Text>
+          </View>
+        ) : fallbackPosts.map((post) => (
           <ThesisCard
             key={post.id}
             post={post}
@@ -76,6 +197,15 @@ function Sentiment({ label, value, color }: { label: string; value: number; colo
   );
 }
 
+function ModelMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.modelMetric}>
+      <Text style={styles.modelMetricLabel}>{label}</Text>
+      <Text style={styles.modelMetricValue}>{value}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   bar: {
     borderRadius: 999,
@@ -89,6 +219,17 @@ const styles = StyleSheet.create({
     gap: 14,
     padding: 16,
     paddingBottom: 32
+  },
+  disclaimer: {
+    color: colors.violet,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  fallbackReason: {
+    color: colors.amber,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17
   },
   hero: {
     backgroundColor: colors.surface,
@@ -115,6 +256,130 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     alignItems: "flex-end"
+  },
+  horizonButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 10
+  },
+  horizonButtonActive: {
+    backgroundColor: colors.charcoal,
+    borderColor: colors.charcoal
+  },
+  horizonRow: {
+    flexDirection: "row",
+    gap: 8
+  },
+  horizonText: {
+    color: colors.muted,
+    fontWeight: "900"
+  },
+  horizonTextActive: {
+    color: colors.surface
+  },
+  kronosButton: {
+    alignItems: "center",
+    backgroundColor: colors.violet,
+    borderRadius: 8,
+    paddingVertical: 13
+  },
+  disabledButton: {
+    opacity: 0.52
+  },
+  kronosButtonText: {
+    color: colors.surface,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  kronosCopy: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginTop: 6
+  },
+  kronosError: {
+    color: colors.red,
+    fontSize: 13,
+    fontWeight: "800"
+  },
+  kronosEyebrow: {
+    color: colors.violet,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  kronosPanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 14,
+    padding: 14
+  },
+  kronosResult: {
+    gap: 12
+  },
+  kronosTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  modelCard: {
+    backgroundColor: "#F1EDF8",
+    borderRadius: 8,
+    gap: 10,
+    padding: 12
+  },
+  modelCopy: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18
+  },
+  modelGrid: {
+    flexDirection: "row",
+    gap: 8
+  },
+  modelMetric: {
+    flex: 1
+  },
+  modelMetricLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  modelMetricValue: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  modelName: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  marketStatus: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800",
+    lineHeight: 17
+  },
+  empty: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    padding: 14
+  },
+  emptyTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    marginBottom: 4
   },
   safeArea: {
     alignSelf: "center",

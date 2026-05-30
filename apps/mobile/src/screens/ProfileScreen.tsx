@@ -12,16 +12,16 @@ import { signInOrSignUpWithEmail, signOutFromSupabase } from "@/lib/supabasePers
 
 export function ProfileScreen() {
   const { state, dispatch } = useAppState();
-  const [email, setEmail] = useState(state.session?.email ?? "demo@finsight.dev");
-  const [password, setPassword] = useState("finsight-demo");
+  const [email, setEmail] = useState(state.session?.email ?? "local@finsight.dev");
+  const [password, setPassword] = useState("finsight-local");
   const [authNotice, setAuthNotice] = useState("");
   const user = state.session?.profile;
   const posts = state.posts.filter((post) => post.author.id === user?.id || post.id === "p2");
 
   async function handleAuth() {
     if (!isSupabaseConfigured) {
-      dispatch({ type: "signInDemo", email });
-      setAuthNotice("Signed in with local demo persistence.");
+      dispatch({ type: "signInLocal", email });
+      setAuthNotice("Signed in with browser-local persistence.");
       return;
     }
 
@@ -32,7 +32,7 @@ export function ProfileScreen() {
       return;
     }
 
-    dispatch({ type: "signInDemo", email });
+    dispatch({ type: "signInLocal", email });
     setAuthNotice(result.message);
   }
 
@@ -59,7 +59,7 @@ export function ProfileScreen() {
                   </Pressable>
                 </View>
                 <Text style={styles.name}>{user.name}</Text>
-                <Text style={styles.handle}>@{user.handle} · {state.session?.mode === "supabase" ? "Supabase" : "Demo mode"}</Text>
+                <Text style={styles.handle}>@{user.handle} · {state.session?.mode === "supabase" ? "Supabase" : "Local mode"}</Text>
                 <Text style={styles.bio}>{user.bio}</Text>
                 <View style={styles.stats}>
                   <ProfileStat label="Followers" value={compactNumber(user.followers)} />
@@ -69,11 +69,11 @@ export function ProfileScreen() {
               </>
             ) : (
               <View style={styles.authPanel}>
-                <Text style={styles.authTitle}>Sign in to demo persistence</Text>
+                <Text style={styles.authTitle}>Sign in to persistence</Text>
                 <Text style={styles.authCopy}>
                   {isSupabaseConfigured
                     ? "Supabase credentials are configured. Email/password auth can be enabled against the schema."
-                    : "Supabase env vars are missing, so this uses local demo mode."}
+                    : "Supabase env vars are missing, so this uses browser-local mode."}
                 </Text>
                 <TextInput value={email} onChangeText={setEmail} style={styles.input} placeholderTextColor={colors.muted} />
                 {isSupabaseConfigured && (
@@ -88,7 +88,7 @@ export function ProfileScreen() {
                 )}
                 {authNotice ? <Text style={styles.authNotice}>{authNotice}</Text> : null}
                 <Pressable style={styles.signInButton} onPress={handleAuth}>
-                  <Text style={styles.signInText}>{isSupabaseConfigured ? "Continue with Supabase" : "Continue in demo mode"}</Text>
+                  <Text style={styles.signInText}>{isSupabaseConfigured ? "Continue with Supabase" : "Continue locally"}</Text>
                 </Pressable>
               </View>
             )}

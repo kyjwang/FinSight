@@ -5,15 +5,17 @@
 - Fullstack monorepo with Expo React Native web, FastAPI, Supabase SQL/RLS, and Vercel static deployment.
 - Social product model: feed, post detail, creator profiles, comments, likes, bookmarks, watchlists, and chat previews.
 - AI boundary: forecast scenarios include model name, confidence, confidence bands, and backtest metrics.
-- Free-first architecture: seeded demo works without paid services, while Supabase/API integrations activate through env vars.
-- Deployment story: static web app for public CV demo, optional API/Supabase services for a fuller system design discussion.
+- Kronos Forecast Lab: symbol pages can call a FastAPI Kronos adapter and render model/fallback metadata in the UI.
+- Free-first architecture: static web app deploys freely, while real candles, Kronos, and Supabase activate through env vars.
+- Deployment story: static web app for public CV sharing, optional API/Supabase services for a fuller system design discussion.
 
 ## CV Bullets
 
 - Built a cross-platform social investing app with Expo React Native, TypeScript, Expo Router, and responsive web deployment on Vercel.
 - Designed Supabase Postgres schema and RLS policies for profiles, social graph, thesis posts, forecasts, comments, watchlists, and realtime chat.
 - Implemented FastAPI market-data and forecasting service with explainable scenario output, confidence bands, and backtest metrics.
-- Created a free public demo path with seeded data fallback, local persistence, SPA deep links, and production static export.
+- Added a Kronos-ready inference boundary that supports optional local model execution and clearly labeled fallback behavior.
+- Created a free public web path with browser-local persistence, SPA deep links, and production static export.
 
 ## What I Would Scale Next
 

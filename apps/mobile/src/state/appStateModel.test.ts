@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { appReducer, initialAppState } from "./appStateModel";
+import { testAsset, testCandles, testPosts } from "@/test/fixtures";
 
 describe("appReducer", () => {
   it("adds a created thesis to the top of the feed and watchlist", () => {
     const next = appReducer(initialAppState, {
       type: "createThesis",
       input: {
-        symbol: "ETH-USD",
+        asset: { ...testAsset, symbol: "ETH-USD", type: "crypto" },
+        candles: testCandles(),
         stance: "bullish",
         horizon: "1W",
         title: "ETH reclaim setup",
@@ -20,14 +22,16 @@ describe("appReducer", () => {
   });
 
   it("toggles likes, bookmarks, comments, and watchlist rows locally", () => {
-    const liked = appReducer(initialAppState, { type: "toggleLike", postId: "p2" });
-    const bookmarked = appReducer(liked, { type: "toggleBookmark", postId: "p3" });
-    const commented = appReducer(bookmarked, { type: "addComment", postId: "p3", body: "Useful risk framing." });
+    const stateWithPost = { ...initialAppState, posts: testPosts() };
+    const postId = stateWithPost.posts[0].id;
+    const liked = appReducer(stateWithPost, { type: "toggleLike", postId });
+    const bookmarked = appReducer(liked, { type: "toggleBookmark", postId });
+    const commented = appReducer(bookmarked, { type: "addComment", postId, body: "Useful risk framing." });
     const watched = appReducer(commented, { type: "toggleWatchlist", symbol: "AAPL" });
 
-    expect(watched.likedPostIds).toContain("p2");
-    expect(watched.bookmarkedPostIds).toContain("p3");
-    expect(watched.commentsByPostId.p3[0].body).toBe("Useful risk framing.");
+    expect(watched.likedPostIds).toContain(postId);
+    expect(watched.bookmarkedPostIds).toContain(postId);
+    expect(watched.commentsByPostId[postId][0].body).toBe("Useful risk framing.");
     expect(watched.watchlistSymbols).toContain("AAPL");
   });
 });

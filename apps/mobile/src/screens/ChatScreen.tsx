@@ -24,7 +24,7 @@ export function ChatScreen() {
               <TextInput
                 value={message}
                 onChangeText={setMessage}
-                placeholder="Send a demo message"
+                placeholder="Send a local message"
                 placeholderTextColor={colors.muted}
                 style={styles.search}
               />
@@ -39,7 +39,7 @@ export function ChatScreen() {
                 <Send size={18} color={colors.surface} />
               </Pressable>
             </View>
-            <Text style={styles.caption}>Demo mode updates the latest conversation locally.</Text>
+            <Text style={styles.caption}>Local mode updates the latest conversation in this browser.</Text>
           </View>
         }
         ListEmptyComponent={

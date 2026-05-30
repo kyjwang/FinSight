@@ -39,6 +39,10 @@ class ForecastResponse(BaseModel):
     confidence: float = Field(ge=0, le=1)
     points: list[ForecastPoint]
     backtest: BacktestMetrics
+    provider: str | None = None
+    providerStatus: str | None = None
+    fallbackReason: str | None = None
+    lookback: int | None = Field(default=None, ge=0)
 
 
 class ForecastRequest(BaseModel):
@@ -46,6 +50,12 @@ class ForecastRequest(BaseModel):
     candles: list[Candle]
     horizon: Horizon = "1W"
     stance: Stance = "neutral"
+
+
+class KronosForecastRequest(BaseModel):
+    symbol: str
+    candles: list[Candle]
+    horizon: Horizon = "1W"
 
 
 class Asset(BaseModel):

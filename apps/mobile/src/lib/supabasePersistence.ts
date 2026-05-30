@@ -7,7 +7,7 @@ export type AuthResult =
 
 export async function signInOrSignUpWithEmail(email: string, password: string): Promise<AuthResult> {
   if (!supabase) {
-    return { ok: false, message: "Supabase is not configured. Using local demo mode instead." };
+    return { ok: false, message: "Supabase is not configured. Using browser-local mode instead." };
   }
 
   const normalizedEmail = email.trim().toLowerCase();
@@ -40,7 +40,7 @@ export async function persistThesisToSupabase(input: CreateThesisInput): Promise
 
   await supabase.from("posts").insert({
     author_id: authorId,
-    symbol: input.symbol,
+    symbol: input.asset.symbol,
     stance: input.stance,
     horizon: input.horizon,
     title: input.title,
@@ -67,8 +67,8 @@ export async function persistEngagementToSupabase(
 }
 
 export async function fetchPersistedPosts(): Promise<ThesisPost[]> {
-  // The MVP keeps the public demo seeded. This adapter is intentionally ready
-  // for Supabase-backed feeds without making the static demo depend on it.
+  // This adapter is intentionally ready for Supabase-backed feeds without
+  // making the static web app depend on a configured database.
   return [];
 }
 

@@ -1,9 +1,9 @@
 from services.api.app.forecasting import generate_forecast, run_backtest
-from services.api.app.sample_data import demo_candles
+from services.api.tests.fixtures import make_candles
 
 
 def test_generate_forecast_returns_confidence_band():
-    candles = demo_candles("NVDA")
+    candles = make_candles("NVDA")
     forecast = generate_forecast("NVDA", candles, "1W", "bullish")
 
     assert len(forecast.points) == 8
@@ -13,7 +13,7 @@ def test_generate_forecast_returns_confidence_band():
 
 
 def test_backtest_returns_samples_and_error():
-    candles = demo_candles("BTC-USD")
+    candles = make_candles("BTC-USD")
     metrics = run_backtest(candles, "1D")
 
     assert metrics.sampleSize > 0

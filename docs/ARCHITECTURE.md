@@ -22,7 +22,7 @@ Forecasts are presented as scenario analysis. Each forecast stores the model nam
 
 ## Scale Path
 
-- Replace seeded mobile data with Supabase queries.
+- Persist browser-local posts to Supabase queries when credentials are configured.
 - Add scheduled ingestion jobs for market candles.
 - Move FastAPI to a container host.
 - Add Redis for feed/cache hot paths.

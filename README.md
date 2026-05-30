@@ -69,13 +69,13 @@ npm run mobile:test
 npm run api:test
 ```
 
-The mobile app ships with seeded demo data, so it can be reviewed without Supabase credentials. Add real credentials later using `apps/mobile/.env.example` and `services/api/.env.example`.
+The app no longer ships fake market candles or seeded social posts. For real stock analysis, run the FastAPI backend and set `EXPO_PUBLIC_API_BASE_URL`.
 
 ## Free Web Deployment
 
-Live demo: add your Vercel URL here after running `vercel`.
+Live app: add your Vercel URL here after running `vercel`.
 
-The recommended free demo path is a static Expo web deployment. This gives you a public URL that works on iPhone Safari without Expo Go, TestFlight, or a paid Apple Developer account.
+The recommended free web path is a static Expo deployment. This gives you a public URL that works on iPhone Safari without Expo Go, TestFlight, or a paid Apple Developer account.
 
 Deploy on Vercel:
 
@@ -92,7 +92,47 @@ The root `vercel.json` is already configured for this monorepo:
 
 After deployment, open the Vercel URL on your iPhone in Safari. To make it feel like an app, tap Share, then Add to Home Screen.
 
-The deployed demo works from seeded data by default. `EXPO_PUBLIC_API_BASE_URL` is optional and only needed later if you deploy the FastAPI backend too.
+The deployed web app needs `EXPO_PUBLIC_API_BASE_URL` to load real candles and call Kronos. Without it, the UI stays clean and shows setup states instead of fake market data.
+
+## Kronos Forecast Lab
+
+FinSight includes a Kronos-ready forecast flow on each symbol page:
+
+1. Open a symbol such as `/symbol/NVDA`.
+2. Choose `1D`, `1W`, or `1M`.
+3. Tap **Analyze with Kronos**.
+4. Review the forecast overlay, model card, lookback, provider status, and backtest metrics.
+
+The public web app requires `EXPO_PUBLIC_API_BASE_URL` for real market candles. If the API URL is missing, Kronos analysis cannot use real stock data and the app shows a setup message instead of fake candles. Forecast code still has a clearly labeled local fallback for API outages:
+
+```text
+Kronos unavailable - FinSight Baseline
+```
+
+Real Kronos inference runs in FastAPI, not in the browser. To enable it locally, clone and install the Kronos project separately, then set:
+
+```bash
+KRONOS_ENABLED=true
+KRONOS_REPO_PATH=/absolute/path/to/Kronos
+KRONOS_MODEL=NeoQuasar/Kronos-small
+KRONOS_TOKENIZER=NeoQuasar/Kronos-Tokenizer-base
+KRONOS_DEVICE=cpu
+```
+
+Then run:
+
+```bash
+source .venv/bin/activate
+npm run api
+```
+
+In another terminal, point the web app at the API:
+
+```bash
+EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run web
+```
+
+The adapter sends up to the latest 512 candles to Kronos and falls back safely if model imports or downloads fail.
 
 ## Portfolio Story
 
@@ -109,10 +149,11 @@ See [docs/PORTFOLIO.md](docs/PORTFOLIO.md) for CV bullets, engineering highlight
 
 ## Engineering Highlights
 
-- Mobile-first social investing UI that also exports as a static web app for free public demos.
-- Local demo persistence for posts, likes, bookmarks, comments, watchlists, chats, and auth state.
+- Mobile-first social investing UI that also exports as a static web app for free public sharing.
+- Browser-local persistence for posts, likes, bookmarks, comments, watchlists, chats, and auth state.
 - Supabase adapter and SQL/RLS schema ready for real email auth and persistent social data.
 - FastAPI forecast service with cache-shaped market data endpoints, explainable scenarios, and backtest metrics.
+- Kronos-ready Forecast Lab with backend inference boundary and clearly labeled fallback behavior.
 - Vercel SPA deployment with deep-link refresh support.
 
 ## What I Would Scale Next

@@ -2,9 +2,9 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from .forecasting import generate_forecast, run_backtest
-from .market_data import get_cached_candles
-from .models import BacktestRequest, ForecastRequest
-from .sample_data import ASSETS
+from .kronos_adapter import generate_kronos_forecast
+from .market_data import MarketDataError, get_cached_candles, search_assets as search_market_assets
+from .models import BacktestRequest, ForecastRequest, KronosForecastRequest
 
 app = FastAPI(
     title="FinSight API",
@@ -28,16 +28,17 @@ def health() -> dict[str, str]:
 
 @app.get("/assets/search")
 def search_assets(q: str = Query(default="", max_length=32)) -> dict[str, list[dict]]:
-    query = q.strip().lower()
-    assets = [asset for asset in ASSETS if query in asset.symbol.lower() or query in asset.name.lower()]
-    if not query:
-        assets = ASSETS
+    assets = search_market_assets(q)
     return {"assets": [asset.model_dump() for asset in assets]}
 
 
 @app.get("/market/{symbol}/candles")
 def get_candles(symbol: str, horizon: str = "1M", interval: str = "1d") -> dict[str, object]:
-    source, candles = get_cached_candles(symbol)
+    try:
+        source, candles = get_cached_candles(symbol, interval=interval, horizon=horizon)
+    except MarketDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     return {
         "symbol": symbol.upper(),
         "horizon": horizon,
@@ -51,6 +52,14 @@ def get_candles(symbol: str, horizon: str = "1M", interval: str = "1d") -> dict[
 def forecast(request: ForecastRequest):
     try:
         return generate_forecast(request.symbol.upper(), request.candles, request.horizon, request.stance)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@app.post("/forecast/kronos")
+def kronos_forecast(request: KronosForecastRequest):
+    try:
+        return generate_kronos_forecast(request.symbol.upper(), request.candles, request.horizon)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

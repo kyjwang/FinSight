@@ -1,15 +1,16 @@
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { StancePill } from "@/components/StancePill";
-import { demoAssets, demoCandles } from "@/data/demo";
+import { fetchCandles, searchAssets } from "@/lib/api";
 import { createForecast } from "@/lib/forecast";
+import { assetFromSymbol, normalizeSymbol } from "@/lib/symbols";
 import { persistThesisToSupabase } from "@/lib/supabasePersistence";
 import { colors } from "@/lib/theme";
 import { useAppState } from "@/state/AppState";
-import { Horizon, Stance } from "@/types";
+import { Asset, Candle, Forecast, Horizon, Stance } from "@/types";
 
 const stances: Stance[] = ["bullish", "neutral", "bearish"];
 const horizons: Horizon[] = ["1D", "1W", "1M"];
@@ -18,25 +19,62 @@ export function CreateThesisScreen() {
   const router = useRouter();
   const { dispatch } = useAppState();
   const [symbol, setSymbol] = useState("NVDA");
+  const [asset, setAsset] = useState<Asset | null>(null);
+  const [candles, setCandles] = useState<Candle[]>([]);
+  const [forecast, setForecast] = useState<Forecast | null>(null);
+  const [loading, setLoading] = useState(false);
   const [stance, setStance] = useState<Stance>("bullish");
   const [horizon, setHorizon] = useState<Horizon>("1W");
-  const [title, setTitle] = useState("Breakout retest with clear invalidation");
-  const [body, setBody] = useState("I want price to hold the prior breakout shelf. If it loses that level on volume, the thesis is invalid.");
-  const [notice, setNotice] = useState("");
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [notice, setNotice] = useState("Load real market data before publishing a thesis.");
 
-  const asset = demoAssets.find((item) => item.symbol === symbol) ?? demoAssets[0];
-  const candles = useMemo(() => demoCandles(asset.symbol), [asset.symbol]);
-  const forecast = useMemo(() => createForecast(candles, horizon, stance), [candles, horizon, stance]);
-  const canPublish = title.trim().length >= 4 && body.trim().length >= 10;
+  const canPublish = Boolean(asset && candles.length >= 8 && title.trim().length >= 4 && body.trim().length >= 10);
 
-  function publishThesis() {
-    if (!canPublish) {
-      setNotice("Add a title and at least one complete sentence before publishing.");
+  useEffect(() => {
+    if (candles.length >= 8) {
+      setForecast(createForecast(candles, horizon, stance));
+    }
+  }, [candles, horizon, stance]);
+
+  async function loadMarketData() {
+    const normalized = normalizeSymbol(symbol);
+    if (!normalized) {
+      setNotice("Enter a valid ticker, for example NVDA or BTC-USD.");
       return;
     }
 
-    dispatch({ type: "createThesis", input: { symbol, stance, horizon, title, body } });
-    persistThesisToSupabase({ symbol, stance, horizon, title, body }).catch(() => undefined);
+    setLoading(true);
+    setNotice("");
+
+    try {
+      const [resolvedAsset] = await searchAssets(normalized, [assetFromSymbol(normalized)]);
+      const resolvedCandles = await fetchCandles(normalized, []);
+      if (resolvedCandles.length < 8) {
+        setAsset(resolvedAsset ?? assetFromSymbol(normalized));
+        setCandles([]);
+        setForecast(null);
+        setNotice("No live candles loaded. Start the FastAPI backend with yfinance installed, then try again.");
+        return;
+      }
+
+      setAsset(resolvedAsset ?? assetFromSymbol(normalized));
+      setCandles(resolvedCandles);
+      setForecast(createForecast(resolvedCandles, horizon, stance));
+      setNotice(`Loaded ${resolvedCandles.length} real candles for ${normalized}.`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function publishThesis() {
+    if (!canPublish || !asset) {
+      setNotice("Load real candles and add a title/body before publishing.");
+      return;
+    }
+
+    dispatch({ type: "createThesis", input: { asset, candles, stance, horizon, title, body } });
+    persistThesisToSupabase({ asset, candles, stance, horizon, title, body }).catch(() => undefined);
     setNotice("Published locally. Your thesis is now at the top of the feed.");
     router.push("/");
   }
@@ -48,18 +86,18 @@ export function CreateThesisScreen() {
         <Text style={styles.caption}>Publish a locked market scenario with chart context and measurable outcome.</Text>
 
         <View style={styles.panel}>
-          <Text style={styles.label}>Asset</Text>
-          <View style={styles.assetGrid}>
-            {demoAssets.map((item) => (
-              <Pressable
-                key={item.symbol}
-                onPress={() => setSymbol(item.symbol)}
-                style={[styles.assetButton, item.symbol === asset.symbol && styles.selectedButton]}
-              >
-                <Text style={[styles.assetText, item.symbol === asset.symbol && styles.selectedText]}>{item.symbol}</Text>
-              </Pressable>
-            ))}
-          </View>
+          <Text style={styles.label}>Ticker</Text>
+          <TextInput
+            value={symbol}
+            onChangeText={setSymbol}
+            autoCapitalize="characters"
+            style={styles.input}
+            placeholder="NVDA"
+            placeholderTextColor={colors.muted}
+          />
+          <Pressable style={styles.loadButton} onPress={loadMarketData}>
+            <Text style={styles.loadButtonText}>{loading ? "Loading market data..." : "Load real market data"}</Text>
+          </Pressable>
 
           <Text style={styles.label}>Stance</Text>
           <View style={styles.segmentRow}>
@@ -92,7 +130,8 @@ export function CreateThesisScreen() {
           />
         </View>
 
-        <View style={styles.preview}>
+        {asset && forecast ? (
+          <View style={styles.preview}>
           <View style={styles.previewHeader}>
             <View>
               <Text style={styles.symbol}>{asset.symbol}</Text>
@@ -111,7 +150,13 @@ export function CreateThesisScreen() {
               {forecast.backtest.sampleSize} samples.
             </Text>
           </View>
-        </View>
+          </View>
+        ) : (
+          <View style={styles.preview}>
+            <Text style={styles.previewTitle}>No chart loaded</Text>
+            <Text style={styles.previewBody}>Load real candles from the API to preview the thesis chart and forecast.</Text>
+          </View>
+        )}
 
         {notice ? <Text style={styles.notice}>{notice}</Text> : null}
 
@@ -203,6 +248,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     gap: 10,
     padding: 14
+  },
+  loadButton: {
+    alignItems: "center",
+    backgroundColor: colors.charcoal,
+    borderRadius: 8,
+    paddingVertical: 12
+  },
+  loadButtonText: {
+    color: colors.surface,
+    fontWeight: "900"
   },
   notice: {
     color: colors.green,

@@ -54,6 +54,10 @@ export type Forecast = {
     meanAbsoluteError: number;
     sampleSize: number;
   };
+  provider?: string;
+  providerStatus?: string;
+  fallbackReason?: string | null;
+  lookback?: number;
 };
 
 export type ThesisPost = {
@@ -98,11 +102,12 @@ export type SessionUser = {
   id: string;
   email: string;
   profile: User;
-  mode: "demo" | "supabase";
+  mode: "local" | "supabase";
 };
 
 export type CreateThesisInput = {
-  symbol: string;
+  asset: Asset;
+  candles: Candle[];
   stance: Stance;
   horizon: Horizon;
   title: string;

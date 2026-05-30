@@ -1,24 +1,47 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { CandlestickChart } from "@/components/CandlestickChart";
 import { StancePill } from "@/components/StancePill";
-import { demoAssets, demoCandles } from "@/data/demo";
 import { communitySentiment } from "@/lib/analytics";
+import { searchAssets } from "@/lib/api";
+import { assetFromSymbol, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { useAppState } from "@/state/AppState";
+import { Asset } from "@/types";
 
 export function DiscoverScreen() {
   const router = useRouter();
   const { state, dispatch } = useAppState();
   const [query, setQuery] = useState("");
-  const assets = useMemo(
-    () => demoAssets.filter((asset) => `${asset.symbol} ${asset.name}`.toLowerCase().includes(query.toLowerCase())),
-    [query]
-  );
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState("Type a ticker like NVDA or BTC-USD, then search real market data.");
   const sentiment = communitySentiment(state.posts);
+
+  async function runSearch() {
+    const symbol = normalizeSymbol(query);
+    if (!symbol) {
+      setAssets([]);
+      setNotice("Enter a valid ticker symbol, for example NVDA.");
+      return;
+    }
+
+    setLoading(true);
+    setNotice("");
+    const fallback = [assetFromSymbol(symbol)];
+
+    try {
+      const results = await searchAssets(symbol, fallback);
+      setAssets(results.length > 0 ? results : fallback);
+      if (results.length === 0) {
+        setNotice("API is not configured, so FinSight can only prepare the symbol route. Start FastAPI for live candles.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -35,7 +58,13 @@ export function DiscoverScreen() {
               placeholder="Search stocks or crypto"
               placeholderTextColor={colors.muted}
               style={styles.search}
+              autoCapitalize="characters"
+              onSubmitEditing={runSearch}
             />
+            <Pressable style={styles.searchButton} onPress={runSearch}>
+              <Text style={styles.searchButtonText}>{loading ? "Searching..." : "Search"}</Text>
+            </Pressable>
+            {notice ? <Text style={styles.notice}>{notice}</Text> : null}
             <View style={styles.sentimentCard}>
               <Text style={styles.sectionTitle}>Community sentiment</Text>
               <View style={styles.sentimentRow}>
@@ -49,7 +78,7 @@ export function DiscoverScreen() {
         ListEmptyComponent={
           <View style={styles.empty}>
             <Text style={styles.emptyTitle}>No symbols found</Text>
-            <Text style={styles.emptyCopy}>Try `NVDA`, `AAPL`, `BTC`, or `ETH`.</Text>
+            <Text style={styles.emptyCopy}>Search a real ticker to load it from the API.</Text>
           </View>
         }
         renderItem={({ item }) => (
@@ -69,7 +98,6 @@ export function DiscoverScreen() {
                 </Text>
               </View>
             </View>
-            <CandlestickChart candles={demoCandles(item.symbol)} height={132} />
             <View style={styles.assetBottom}>
               <StancePill stance={item.changePercent >= 0 ? "bullish" : "bearish"} />
               <Pressable
@@ -204,6 +232,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     paddingHorizontal: 14,
     paddingVertical: 13
+  },
+  searchButton: {
+    alignItems: "center",
+    backgroundColor: colors.charcoal,
+    borderRadius: 8,
+    paddingVertical: 13
+  },
+  searchButtonText: {
+    color: colors.surface,
+    fontWeight: "900"
+  },
+  notice: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 18
   },
   sectionTitle: {
     color: colors.ink,

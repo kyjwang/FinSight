@@ -1,6 +1,17 @@
-import { demoAssets, demoCandles, demoChats, demoPosts, demoUsers } from "@/data/demo";
 import { createForecast } from "@/lib/forecast";
-import { ChatPreview, Comment, CreateThesisInput, SessionUser, ThesisPost } from "@/types";
+import { ChatPreview, Comment, CreateThesisInput, SessionUser, ThesisPost, User } from "@/types";
+
+const localUser: User = {
+  id: "local-user",
+  handle: "finsight_user",
+  name: "FinSight User",
+  bio: "Building a public market thesis track record.",
+  avatar: "FU",
+  followers: 0,
+  following: 0,
+  accuracy: 0,
+  averageReturn: 0
+};
 
 export type AppState = {
   posts: ThesisPost[];
@@ -19,42 +30,23 @@ export type AppAction =
   | { type: "toggleWatchlist"; symbol: string }
   | { type: "addComment"; postId: string; body: string }
   | { type: "sendMessage"; chatId: string; body: string }
-  | { type: "signInDemo"; email: string }
+  | { type: "signInLocal"; email: string }
   | { type: "signInSupabase"; email: string; userId: string }
   | { type: "signOut" }
   | { type: "hydrate"; state: AppState };
 
 export const initialAppState: AppState = {
-  posts: demoPosts,
-  likedPostIds: ["p1"],
-  bookmarkedPostIds: ["p1", "p2"],
-  watchlistSymbols: ["NVDA", "BTC-USD"],
-  commentsByPostId: {
-    p1: [
-      {
-        id: "comment-p1-1",
-        postId: "p1",
-        author: demoUsers[2],
-        body: "The invalidation level makes this much more useful than a normal bullish post.",
-        createdAt: "12m"
-      }
-    ],
-    p2: [
-      {
-        id: "comment-p2-1",
-        postId: "p2",
-        author: demoUsers[0],
-        body: "I like waiting for confirmation here. The range has been unforgiving.",
-        createdAt: "42m"
-      }
-    ]
-  },
-  chats: demoChats,
+  posts: [],
+  likedPostIds: [],
+  bookmarkedPostIds: [],
+  watchlistSymbols: [],
+  commentsByPostId: {},
+  chats: [],
   session: {
-    id: "demo-session",
-    email: "demo@finsight.dev",
-    profile: demoUsers[0],
-    mode: "demo"
+    id: "local-session",
+    email: "local@finsight.dev",
+    profile: localUser,
+    mode: "local"
   }
 };
 
@@ -70,21 +62,19 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         }
       };
     case "createThesis": {
-      const asset = demoAssets.find((item) => item.symbol === action.input.symbol) ?? demoAssets[0];
-      const candles = demoPosts.find((post) => post.asset.symbol === asset.symbol)?.candles ?? demoCandles(asset.symbol);
-      const author = state.session?.profile ?? demoUsers[0];
+      const author = state.session?.profile ?? localUser;
       const post: ThesisPost = {
         id: `local-${Date.now()}`,
         author,
-        asset,
+        asset: action.input.asset,
         stance: action.input.stance,
         horizon: action.input.horizon,
         title: action.input.title.trim(),
         body: action.input.body.trim(),
         createdAt: "now",
         locked: true,
-        candles,
-        forecast: createForecast(candles, action.input.horizon, action.input.stance),
+        candles: action.input.candles,
+        forecast: createForecast(action.input.candles, action.input.horizon, action.input.stance),
         result: { status: "pending" },
         likes: 0,
         comments: 0,
@@ -94,7 +84,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       return {
         ...state,
         posts: [post, ...state.posts],
-        watchlistSymbols: unique([asset.symbol, ...state.watchlistSymbols])
+        watchlistSymbols: unique([action.input.asset.symbol, ...state.watchlistSymbols])
       };
     }
     case "toggleLike": {
@@ -135,7 +125,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
       const comment: Comment = {
         id: `comment-${Date.now()}`,
         postId: action.postId,
-        author: state.session?.profile ?? demoUsers[0],
+        author: state.session?.profile ?? localUser,
         body,
         createdAt: "now"
       };
@@ -162,14 +152,14 @@ export function appReducer(state: AppState, action: AppAction): AppState {
         )
       };
     }
-    case "signInDemo":
+    case "signInLocal":
       return {
         ...state,
         session: {
-          id: "demo-session",
-          email: action.email.trim() || "demo@finsight.dev",
-          profile: demoUsers[0],
-          mode: "demo"
+          id: "local-session",
+          email: action.email.trim() || "local@finsight.dev",
+          profile: localUser,
+          mode: "local"
         }
       };
     case "signInSupabase":
@@ -179,7 +169,7 @@ export function appReducer(state: AppState, action: AppAction): AppState {
           id: action.userId,
           email: action.email,
           profile: {
-            ...demoUsers[0],
+            ...localUser,
             id: action.userId,
             handle: action.email.split("@")[0].toLowerCase().replace(/[^a-z0-9_]/g, "_").slice(0, 24) || "finsight_user",
             name: action.email.split("@")[0] || "FinSight User"

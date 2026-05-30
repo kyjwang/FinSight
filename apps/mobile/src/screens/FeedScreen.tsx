@@ -37,7 +37,7 @@ function FeedHeader({ hydrated }: { hydrated: boolean }) {
       <View>
         <Text style={styles.kicker}>FinSight</Text>
         <Text style={styles.title}>Market theses</Text>
-        <Text style={styles.status}>{hydrated ? "Demo state saved locally" : "Loading saved demo state..."}</Text>
+        <Text style={styles.status}>{hydrated ? "Local state saved in this browser" : "Loading local state..."}</Text>
       </View>
       <View style={styles.iconRow}>
         <Pressable style={styles.iconButton}><Search size={19} color={colors.ink} /></Pressable>

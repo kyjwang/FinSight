@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createForecast } from "./forecast";
-import { demoCandles } from "../data/demo";
+import { testCandles } from "@/test/fixtures";
 
 describe("createForecast", () => {
   it("creates bounded forecast points and backtest metadata", () => {
-    const forecast = createForecast(demoCandles("NVDA"), "1W", "bullish");
+    const forecast = createForecast(testCandles(), "1W", "bullish");
 
     expect(forecast.points.length).toBe(8);
     expect(forecast.confidence).toBeGreaterThanOrEqual(0.52);
