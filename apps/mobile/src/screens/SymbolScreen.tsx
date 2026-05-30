@@ -187,6 +187,7 @@ export function SymbolScreen() {
                   <ModelMetric label="Status" value={kronosForecast.providerStatus ?? "ready"} />
                   <ModelMetric label="Lookback" value={`${kronosForecast.lookback ?? candles.length}`} />
                 </View>
+                <ForecastStats candles={candles} forecast={kronosForecast} />
                 <Text style={styles.modelCopy}>
                   Backtest: {Math.round(kronosForecast.backtest.directionAccuracy * 100)}% direction accuracy ·{" "}
                   {kronosForecast.backtest.meanAbsoluteError}% MAE.
@@ -236,6 +237,48 @@ function ModelMetric({ label, value }: { label: string; value: string }) {
     <View style={styles.modelMetric}>
       <Text style={styles.modelMetricLabel}>{label}</Text>
       <Text style={styles.modelMetricValue}>{value}</Text>
+    </View>
+  );
+}
+
+function ForecastStats({ candles, forecast }: { candles: Candle[]; forecast: Forecast }) {
+  const stats = buildForecastStats(candles, forecast);
+  if (!stats) return null;
+
+  return (
+    <View style={styles.forecastBlock}>
+      <View style={styles.forecastGrid}>
+        <ForecastMetric label="Target close" value={formatCurrency(stats.finalMean)} />
+        <ForecastMetric label="Projected move" value={formatPercent(stats.projectedMove)} tone={stats.projectedMove >= 0 ? "green" : "red"} />
+        <ForecastMetric label="Confidence band" value={`${formatCurrency(stats.finalLower)} - ${formatCurrency(stats.finalUpper)}`} />
+      </View>
+      <View style={styles.forecastTable}>
+        <View style={styles.forecastRowHeader}>
+          <Text style={[styles.forecastCell, styles.forecastTime]}>Time</Text>
+          <Text style={styles.forecastCell}>Mean</Text>
+          <Text style={styles.forecastCell}>Low</Text>
+          <Text style={styles.forecastCell}>High</Text>
+        </View>
+        {forecast.points.slice(0, 6).map((point) => (
+          <View key={point.time} style={styles.forecastRow}>
+            <Text style={[styles.forecastCell, styles.forecastTime]}>{shortDate(point.time)}</Text>
+            <Text style={styles.forecastCell}>{priceText(point.mean)}</Text>
+            <Text style={[styles.forecastCell, styles.metricRed]}>{priceText(point.lower)}</Text>
+            <Text style={[styles.forecastCell, styles.metricGreen]}>{priceText(point.upper)}</Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ForecastMetric({ label, value, tone }: { label: string; value: string; tone?: "green" | "red" }) {
+  return (
+    <View style={styles.forecastMetric}>
+      <Text style={styles.forecastMetricLabel}>{label}</Text>
+      <Text style={[styles.forecastMetricValue, tone === "green" && styles.metricGreen, tone === "red" && styles.metricRed]}>
+        {value}
+      </Text>
     </View>
   );
 }
@@ -299,10 +342,24 @@ function buildMarketStats(candles: Candle[]) {
   };
 }
 
+function buildForecastStats(candles: Candle[], forecast: Forecast) {
+  const latest = candles.at(-1);
+  const finalPoint = forecast.points.at(-1);
+  if (!latest || !finalPoint || latest.close === 0) return null;
+
+  return {
+    finalMean: finalPoint.mean,
+    finalLower: finalPoint.lower,
+    finalUpper: finalPoint.upper,
+    projectedMove: ((finalPoint.mean - latest.close) / latest.close) * 100
+  };
+}
+
 function shortDate(value: string): string {
-  const [, month, day] = value.split("-");
+  const datePart = value.split(/[ T]/)[0];
+  const [, month, day] = datePart.split("-");
   if (month && day) return `${month}/${day}`;
-  return value.slice(0, 8);
+  return datePart.slice(0, 8);
 }
 
 function priceText(value: number): string {
@@ -367,6 +424,66 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 17
+  },
+  forecastBlock: {
+    gap: 10
+  },
+  forecastCell: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "right"
+  },
+  forecastGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  forecastMetric: {
+    backgroundColor: colors.surface,
+    borderColor: "#DDD2F0",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexBasis: "31%",
+    flexGrow: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9
+  },
+  forecastMetricLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800"
+  },
+  forecastMetricValue: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  forecastRow: {
+    borderTopColor: "#DDD2F0",
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 7
+  },
+  forecastRowHeader: {
+    flexDirection: "row",
+    gap: 6,
+    paddingBottom: 6,
+    paddingTop: 6
+  },
+  forecastTable: {
+    backgroundColor: "#FAF8FD",
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 3
+  },
+  forecastTime: {
+    color: colors.muted,
+    flex: 1.2,
+    textAlign: "left"
   },
   hero: {
     backgroundColor: colors.surface,

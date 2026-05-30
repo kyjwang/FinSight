@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { testAsset, testCandles } from "@/test/fixtures";
-import { fetchCandles, requestForecast, requestKronosForecast, searchAssets } from "./api";
+import { checkApiHealth, fetchCandles, requestForecast, requestKronosForecast, searchAssets } from "./api";
 
 describe("api fallback behavior", () => {
+  it("reports local mode when no API base URL is configured in tests", async () => {
+    await expect(checkApiHealth()).resolves.toBe("local");
+  });
+
   it("returns fallback candles when no API base URL is configured", async () => {
     const fallback = testCandles();
     await expect(fetchCandles("NVDA", fallback)).resolves.toBe(fallback);

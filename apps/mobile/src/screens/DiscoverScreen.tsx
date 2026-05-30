@@ -1,15 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FlatList, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StancePill } from "@/components/StancePill";
 import { communitySentiment } from "@/lib/analytics";
-import { fetchCandles, searchAssets } from "@/lib/api";
+import { checkApiHealth, fetchCandles, searchAssets } from "@/lib/api";
 import { assetFromSymbol, assetWithCandleStats, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { useAppState } from "@/state/AppState";
 import { Asset } from "@/types";
+
+const quickSymbols = ["NVDA", "AAPL", "MSFT", "BTC-USD", "ETH-USD"];
 
 export function DiscoverScreen() {
   const router = useRouter();
@@ -18,10 +20,23 @@ export function DiscoverScreen() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("Type a ticker like NVDA or BTC-USD, then search real market data.");
+  const [apiStatus, setApiStatus] = useState<"checking" | "online" | "offline" | "local">("checking");
   const sentiment = communitySentiment(state.posts);
 
-  async function runSearch() {
-    const symbol = normalizeSymbol(query);
+  useEffect(() => {
+    let active = true;
+
+    checkApiHealth().then((status) => {
+      if (active) setApiStatus(status);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function runSearch(input = query) {
+    const symbol = normalizeSymbol(input);
     if (!symbol) {
       setAssets([]);
       setNotice("Enter a valid ticker symbol, for example NVDA.");
@@ -56,6 +71,19 @@ export function DiscoverScreen() {
         ListHeaderComponent={
           <View style={styles.header}>
             <Text style={styles.title}>Discover</Text>
+            <View style={styles.statusCard}>
+              <View style={[styles.statusDot, apiStatus === "online" && styles.statusDotOnline, apiStatus === "offline" && styles.statusDotOffline]} />
+              <View style={styles.statusTextColumn}>
+                <Text style={styles.statusTitle}>
+                  {apiStatus === "online" ? "Hosted market API online" : apiStatus === "offline" ? "Market API unreachable" : "Checking market API"}
+                </Text>
+                <Text style={styles.statusCopy}>
+                  {apiStatus === "online"
+                    ? "Search results load real Yahoo Finance candles and Kronos can run from the backend."
+                    : "The app still opens, but real candles and Kronos need the hosted FastAPI service."}
+                </Text>
+              </View>
+            </View>
             <TextInput
               value={query}
               onChangeText={setQuery}
@@ -63,11 +91,25 @@ export function DiscoverScreen() {
               placeholderTextColor={colors.muted}
               style={styles.search}
               autoCapitalize="characters"
-              onSubmitEditing={runSearch}
+              onSubmitEditing={() => runSearch()}
             />
-            <Pressable style={styles.searchButton} onPress={runSearch}>
+            <Pressable style={styles.searchButton} onPress={() => runSearch()}>
               <Text style={styles.searchButtonText}>{loading ? "Searching..." : "Search"}</Text>
             </Pressable>
+            <View style={styles.quickRow}>
+              {quickSymbols.map((symbol) => (
+                <Pressable
+                  key={symbol}
+                  style={styles.quickButton}
+                  onPress={() => {
+                    setQuery(symbol);
+                    runSearch(symbol);
+                  }}
+                >
+                  <Text style={styles.quickText}>{symbol}</Text>
+                </Pressable>
+              ))}
+            </View>
             {notice ? <Text style={styles.notice}>{notice}</Text> : null}
             <View style={styles.sentimentCard}>
               <Text style={styles.sectionTitle}>Community sentiment</Text>
@@ -219,6 +261,24 @@ const styles = StyleSheet.create({
   priceBlock: {
     alignItems: "flex-end"
   },
+  quickButton: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  quickRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  quickText: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900"
+  },
   safeArea: {
     alignSelf: "center",
     backgroundColor: colors.background,
@@ -246,6 +306,44 @@ const styles = StyleSheet.create({
   searchButtonText: {
     color: colors.surface,
     fontWeight: "900"
+  },
+  statusCard: {
+    alignItems: "flex-start",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    padding: 12
+  },
+  statusCopy: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17,
+    marginTop: 3
+  },
+  statusDot: {
+    backgroundColor: colors.amber,
+    borderRadius: 999,
+    height: 10,
+    marginTop: 4,
+    width: 10
+  },
+  statusDotOffline: {
+    backgroundColor: colors.red
+  },
+  statusDotOnline: {
+    backgroundColor: colors.green
+  },
+  statusTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900"
+  },
+  statusTextColumn: {
+    flex: 1
   },
   notice: {
     color: colors.muted,

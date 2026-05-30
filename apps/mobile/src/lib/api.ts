@@ -4,6 +4,17 @@ import { createForecast } from "./forecast";
 const defaultApiBaseUrl = process.env.NODE_ENV === "test" ? "" : "https://kyjwang-finsight-api.hf.space";
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL || defaultApiBaseUrl;
 
+export async function checkApiHealth(): Promise<"online" | "offline" | "local"> {
+  if (!apiBaseUrl) return "local";
+
+  try {
+    const response = await fetch(`${apiBaseUrl}/health`);
+    return response.ok ? "online" : "offline";
+  } catch {
+    return "offline";
+  }
+}
+
 export async function fetchCandles(symbol: string, fallback: Candle[], horizon = "1M"): Promise<Candle[]> {
   if (!apiBaseUrl) return fallback;
 
