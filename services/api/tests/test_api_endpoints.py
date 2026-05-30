@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from services.api.app.main import app
+from services.api.app.market_data import horizon_to_period
 from services.api.tests.fixtures import make_candles
 
 
@@ -24,6 +25,12 @@ def test_candles_include_market_source(monkeypatch):
     assert response.status_code == 200
     assert payload["source"] == "yfinance"
     assert len(payload["candles"]) >= 30
+
+
+def test_market_horizons_map_to_yfinance_periods():
+    assert horizon_to_period("1M") == "1mo"
+    assert horizon_to_period("3M") == "3mo"
+    assert horizon_to_period("1Y") == "1y"
 
 
 def test_kronos_forecast_falls_back_when_disabled(monkeypatch):

@@ -3,11 +3,11 @@ import { createForecast } from "./forecast";
 
 const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 
-export async function fetchCandles(symbol: string, fallback: Candle[]): Promise<Candle[]> {
+export async function fetchCandles(symbol: string, fallback: Candle[], horizon = "1M"): Promise<Candle[]> {
   if (!apiBaseUrl) return fallback;
 
   try {
-    const response = await fetch(`${apiBaseUrl}/market/${encodeURIComponent(symbol)}/candles?interval=1d&horizon=1M`);
+    const response = await fetch(`${apiBaseUrl}/market/${encodeURIComponent(symbol)}/candles?interval=1d&horizon=${encodeURIComponent(horizon)}`);
     if (!response.ok) return fallback;
     const json = await response.json();
     return json.candles ?? fallback;

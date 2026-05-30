@@ -6,13 +6,15 @@ import { CandlestickChart } from "@/components/CandlestickChart";
 import { ThesisCard } from "@/components/ThesisCard";
 import { communitySentiment } from "@/lib/analytics";
 import { fetchCandles, requestKronosForecast, searchAssets } from "@/lib/api";
-import { assetFromSymbol, normalizeSymbol } from "@/lib/symbols";
+import { assetFromSymbol, assetWithCandleStats, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
-import { formatCurrency, formatPercent } from "@/lib/format";
+import { compactNumber, formatCurrency, formatPercent } from "@/lib/format";
 import { useAppState } from "@/state/AppState";
 import { Asset, Candle, Forecast, Horizon } from "@/types";
 
 const horizons: Horizon[] = ["1D", "1W", "1M"];
+const chartRanges = ["1M", "3M", "6M", "1Y"] as const;
+type ChartRange = (typeof chartRanges)[number];
 
 export function SymbolScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
@@ -20,6 +22,7 @@ export function SymbolScreen() {
   const normalizedSymbol = normalizeSymbol(symbol ?? "NVDA");
   const [asset, setAsset] = useState<Asset>(assetFromSymbol(normalizedSymbol));
   const [candles, setCandles] = useState<Candle[]>([]);
+  const [chartRange, setChartRange] = useState<ChartRange>("6M");
   const [marketStatus, setMarketStatus] = useState("Loading real candles from the API...");
   const [kronosHorizon, setKronosHorizon] = useState<Horizon>("1W");
   const [kronosForecast, setKronosForecast] = useState<Forecast | null>(null);
@@ -29,6 +32,7 @@ export function SymbolScreen() {
   const fallbackPosts = posts.length > 0 ? posts : state.posts.slice(0, 2);
   const sentiment = communitySentiment(fallbackPosts);
   const watching = state.watchlistSymbols.includes(asset.symbol);
+  const marketStats = buildMarketStats(candles);
 
   useEffect(() => {
     let active = true;
@@ -37,11 +41,11 @@ export function SymbolScreen() {
       setMarketStatus("Loading real candles from the API...");
       setKronosForecast(null);
       const [resolvedAsset] = await searchAssets(normalizedSymbol, [assetFromSymbol(normalizedSymbol)]);
-      const resolvedCandles = await fetchCandles(normalizedSymbol, []);
+      const resolvedCandles = await fetchCandles(normalizedSymbol, [], chartRange);
 
       if (!active) return;
 
-      setAsset(resolvedAsset ?? assetFromSymbol(normalizedSymbol));
+      setAsset(assetWithCandleStats(resolvedAsset ?? assetFromSymbol(normalizedSymbol), resolvedCandles));
       setCandles(resolvedCandles);
       setMarketStatus(
         resolvedCandles.length >= 8
@@ -60,7 +64,7 @@ export function SymbolScreen() {
     return () => {
       active = false;
     };
-  }, [normalizedSymbol]);
+  }, [normalizedSymbol, chartRange]);
 
   async function analyzeWithKronos() {
     if (candles.length < 8) {
@@ -97,8 +101,38 @@ export function SymbolScreen() {
               </Text>
             </View>
           </View>
-          <CandlestickChart candles={candles} />
+          <View style={styles.rangeRow}>
+            {chartRanges.map((range) => (
+              <Pressable
+                key={range}
+                style={[styles.rangeButton, range === chartRange && styles.rangeButtonActive]}
+                onPress={() => setChartRange(range)}
+              >
+                <Text style={[styles.rangeText, range === chartRange && styles.rangeTextActive]}>{range}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <CandlestickChart candles={candles} height={230} />
           <Text style={styles.marketStatus}>{marketStatus}</Text>
+          {marketStats ? (
+            <>
+              <View style={styles.statGrid}>
+                <MarketMetric label="Open" value={formatCurrency(marketStats.latest.open)} />
+                <MarketMetric label="High" value={formatCurrency(marketStats.latest.high)} tone="green" />
+                <MarketMetric label="Low" value={formatCurrency(marketStats.latest.low)} tone="red" />
+                <MarketMetric label="Close" value={formatCurrency(marketStats.latest.close)} />
+                <MarketMetric label="Volume" value={compactNumber(marketStats.latest.volume)} />
+                <MarketMetric label="Avg Vol" value={compactNumber(marketStats.averageVolume)} />
+              </View>
+              <View style={styles.marketTape}>
+                <TapeItem label="Latest candle" value={marketStats.latest.time} />
+                <TapeItem label="Previous close" value={formatCurrency(marketStats.previousClose)} />
+                <TapeItem label={`${chartRange} range`} value={`${formatCurrency(marketStats.rangeLow)} - ${formatCurrency(marketStats.rangeHigh)}`} />
+                <TapeItem label="Total traded" value={compactNumber(marketStats.totalVolume)} />
+              </View>
+              <RecentCandles candles={candles.slice(-6).reverse()} />
+            </>
+          ) : null}
           <Pressable
             style={[styles.watchButton, watching && styles.watchButtonActive]}
             onPress={() => dispatch({ type: "toggleWatchlist", symbol: asset.symbol })}
@@ -206,6 +240,78 @@ function ModelMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function MarketMetric({ label, value, tone }: { label: string; value: string; tone?: "green" | "red" }) {
+  return (
+    <View style={styles.marketMetric}>
+      <Text style={styles.marketMetricLabel}>{label}</Text>
+      <Text style={[styles.marketMetricValue, tone === "green" && styles.metricGreen, tone === "red" && styles.metricRed]}>
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function TapeItem({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.tapeItem}>
+      <Text style={styles.tapeLabel}>{label}</Text>
+      <Text style={styles.tapeValue}>{value}</Text>
+    </View>
+  );
+}
+
+function RecentCandles({ candles }: { candles: Candle[] }) {
+  return (
+    <View style={styles.candleTable}>
+      <View style={styles.candleTableHeader}>
+        <Text style={[styles.candleCell, styles.candleDate]}>Time</Text>
+        <Text style={styles.candleCell}>Open</Text>
+        <Text style={styles.candleCell}>High</Text>
+        <Text style={styles.candleCell}>Low</Text>
+        <Text style={styles.candleCell}>Vol</Text>
+      </View>
+      {candles.map((candle) => (
+        <View key={candle.time} style={styles.candleRow}>
+          <Text style={[styles.candleCell, styles.candleDate]}>{shortDate(candle.time)}</Text>
+          <Text style={styles.candleCell}>{priceText(candle.open)}</Text>
+          <Text style={[styles.candleCell, styles.metricGreen]}>{priceText(candle.high)}</Text>
+          <Text style={[styles.candleCell, styles.metricRed]}>{priceText(candle.low)}</Text>
+          <Text style={styles.candleCell}>{compactNumber(candle.volume)}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function buildMarketStats(candles: Candle[]) {
+  const latest = candles.at(-1);
+  if (!latest) return null;
+
+  const previous = candles.at(-2) ?? latest;
+  const totalVolume = candles.reduce((sum, candle) => sum + candle.volume, 0);
+  return {
+    latest,
+    previousClose: previous.close,
+    averageVolume: Math.round(totalVolume / candles.length),
+    totalVolume,
+    rangeHigh: Math.max(...candles.map((candle) => candle.high)),
+    rangeLow: Math.min(...candles.map((candle) => candle.low))
+  };
+}
+
+function shortDate(value: string): string {
+  const [, month, day] = value.split("-");
+  if (month && day) return `${month}/${day}`;
+  return value.slice(0, 8);
+}
+
+function priceText(value: number): string {
+  if (value >= 1000) return value.toLocaleString(undefined, { maximumFractionDigits: 0 });
+  if (value >= 100) return value.toFixed(1);
+  if (value >= 10) return value.toFixed(2);
+  return value.toFixed(3);
+}
+
 const styles = StyleSheet.create({
   bar: {
     borderRadius: 999,
@@ -214,6 +320,37 @@ const styles = StyleSheet.create({
   },
   change: {
     fontWeight: "900"
+  },
+  candleCell: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 11,
+    fontWeight: "800",
+    textAlign: "right"
+  },
+  candleDate: {
+    color: colors.muted,
+    flex: 1.15,
+    textAlign: "left"
+  },
+  candleRow: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    paddingVertical: 8
+  },
+  candleTable: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4
+  },
+  candleTableHeader: {
+    flexDirection: "row",
+    gap: 6,
+    paddingBottom: 6,
+    paddingTop: 6
   },
   content: {
     gap: 14,
@@ -256,6 +393,31 @@ const styles = StyleSheet.create({
   },
   priceBlock: {
     alignItems: "flex-end"
+  },
+  rangeButton: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 9
+  },
+  rangeButtonActive: {
+    backgroundColor: colors.green,
+    borderColor: colors.green
+  },
+  rangeRow: {
+    flexDirection: "row",
+    gap: 8
+  },
+  rangeText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  rangeTextActive: {
+    color: colors.surface
   },
   horizonButton: {
     alignItems: "center",
@@ -362,11 +524,43 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900"
   },
+  marketMetric: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    flexBasis: "31%",
+    flexGrow: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 10
+  },
+  marketMetricLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800"
+  },
+  marketMetricValue: {
+    color: colors.ink,
+    fontSize: 15,
+    fontWeight: "900",
+    marginTop: 3
+  },
   marketStatus: {
     color: colors.muted,
     fontSize: 12,
     fontWeight: "800",
     lineHeight: 17
+  },
+  marketTape: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 10
+  },
+  metricGreen: {
+    color: colors.green
+  },
+  metricRed: {
+    color: colors.red
   },
   empty: {
     backgroundColor: colors.surface,
@@ -411,10 +605,32 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginTop: 2
   },
+  statGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
   symbol: {
     color: colors.ink,
     fontSize: 34,
     fontWeight: "900"
+  },
+  tapeItem: {
+    flexDirection: "row",
+    gap: 10,
+    justifyContent: "space-between"
+  },
+  tapeLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  tapeValue: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right"
   },
   watchButton: {
     alignItems: "center",

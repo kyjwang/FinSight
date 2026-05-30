@@ -110,8 +110,16 @@ def normalize_symbol(query: str) -> str:
 
 def horizon_to_period(horizon: str) -> str:
     normalized = horizon.upper()
-    if normalized in {"1M", "3M", "6M", "1Y", "2Y", "5Y"}:
-        return normalized.lower()
+    period_map = {
+        "1M": "1mo",
+        "3M": "3mo",
+        "6M": "6mo",
+        "1Y": "1y",
+        "2Y": "2y",
+        "5Y": "5y",
+    }
+    if normalized in period_map:
+        return period_map[normalized]
     return "1y"
 
 

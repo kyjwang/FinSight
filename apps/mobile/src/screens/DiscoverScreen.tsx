@@ -4,8 +4,8 @@ import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { StancePill } from "@/components/StancePill";
 import { communitySentiment } from "@/lib/analytics";
-import { searchAssets } from "@/lib/api";
-import { assetFromSymbol, normalizeSymbol } from "@/lib/symbols";
+import { fetchCandles, searchAssets } from "@/lib/api";
+import { assetFromSymbol, assetWithCandleStats, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { useAppState } from "@/state/AppState";
@@ -34,7 +34,11 @@ export function DiscoverScreen() {
 
     try {
       const results = await searchAssets(symbol, fallback);
-      setAssets(results.length > 0 ? results : fallback);
+      const baseAssets = results.length > 0 ? results : fallback;
+      const enrichedAssets = await Promise.all(
+        baseAssets.map(async (asset) => assetWithCandleStats(asset, await fetchCandles(asset.symbol, [])))
+      );
+      setAssets(enrichedAssets);
       if (results.length === 0) {
         setNotice("API is not configured, so FinSight can only prepare the symbol route. Start FastAPI for live candles.");
       }
