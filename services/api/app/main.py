@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .forecasting import generate_forecast, run_backtest
 from .kronos_adapter import generate_kronos_forecast
 from .market_data import MarketDataError, get_cached_candles, search_assets as search_market_assets
+from .signals import build_market_signal
 from .models import BacktestRequest, ForecastRequest, KronosForecastRequest
 
 app = FastAPI(
@@ -46,6 +47,21 @@ def get_candles(symbol: str, horizon: str = "1M", interval: str = "1d") -> dict[
         "source": source,
         "candles": [candle.model_dump() for candle in candles],
     }
+
+
+@app.get("/signals/{symbol}")
+def get_signal(symbol: str, horizon: str = "1W", interval: str = "1d") -> dict[str, object]:
+    if horizon not in {"1D", "1W", "1M"}:
+        raise HTTPException(status_code=422, detail="horizon must be 1D, 1W, or 1M")
+
+    try:
+        _, candles = get_cached_candles(symbol, interval=interval, horizon="6M")
+        signal = build_market_signal(symbol.upper(), candles, horizon)
+        return signal.model_dump()
+    except MarketDataError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/forecast")

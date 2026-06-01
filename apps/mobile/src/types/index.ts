@@ -58,6 +58,31 @@ export type Forecast = {
   providerStatus?: string;
   fallbackReason?: string | null;
   lookback?: number;
+  signalScore?: number | null;
+  expectedMovePercent?: number | null;
+  riskReward?: number | null;
+};
+
+export type MarketSignal = {
+  symbol: string;
+  generatedAt: string;
+  horizon: Horizon;
+  signal: Stance;
+  score: number;
+  confidence: number;
+  expectedMovePercent: number;
+  riskReward: number;
+  stopLossPercent: number;
+  takeProfitPercent: number;
+  volatilityPercent: number;
+  components: Array<{
+    label: string;
+    value: string;
+    score: number;
+    detail: string;
+  }>;
+  summary: string;
+  notFinancialAdvice: string;
 };
 
 export type ThesisPost = {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testAsset, testCandles } from "@/test/fixtures";
-import { checkApiHealth, fetchCandles, requestForecast, requestKronosForecast, searchAssets } from "./api";
+import { checkApiHealth, fetchCandles, requestForecast, requestKronosForecast, requestMarketSignal, searchAssets } from "./api";
 
 describe("api fallback behavior", () => {
   it("reports local mode when no API base URL is configured in tests", async () => {
@@ -22,6 +22,13 @@ describe("api fallback behavior", () => {
     expect(forecast.modelName).toContain("Kronos unavailable");
     expect(forecast.provider).toBe("kronos");
     expect(forecast.providerStatus).toBe("fallback");
+  });
+
+  it("returns a local market signal when no API base URL is configured", async () => {
+    const signal = await requestMarketSignal("NVDA", testCandles(), "1W");
+    expect(signal?.symbol).toBe("NVDA");
+    expect(signal?.components.length).toBeGreaterThan(0);
+    expect(signal?.score).toBeTypeOf("number");
   });
 
   it("returns fallback asset search when no API base URL is configured", async () => {

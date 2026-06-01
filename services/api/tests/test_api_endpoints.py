@@ -33,6 +33,20 @@ def test_market_horizons_map_to_yfinance_periods():
     assert horizon_to_period("1Y") == "1y"
 
 
+def test_signal_endpoint_returns_quality_components(monkeypatch):
+    monkeypatch.setattr("services.api.app.market_data.fetch_yfinance_candles", lambda *args, **kwargs: make_candles(count=80))
+
+    response = client.get("/signals/NVDA?horizon=1W")
+    payload = response.json()
+
+    assert response.status_code == 200
+    assert payload["symbol"] == "NVDA"
+    assert payload["signal"] in {"bullish", "neutral", "bearish"}
+    assert -100 <= payload["score"] <= 100
+    assert payload["components"]
+    assert payload["notFinancialAdvice"]
+
+
 def test_kronos_forecast_falls_back_when_disabled(monkeypatch):
     monkeypatch.setattr("services.api.app.market_data.fetch_yfinance_candles", lambda *args, **kwargs: make_candles())
     candles = client.get("/market/NVDA/candles").json()["candles"]
@@ -48,6 +62,8 @@ def test_kronos_forecast_falls_back_when_disabled(monkeypatch):
     assert payload["fallbackReason"]
     assert payload["lookback"] == len(candles)
     assert len(payload["points"]) == 8
+    assert payload["signalScore"] is not None
+    assert payload["riskReward"] is not None
 
 
 def test_kronos_forecast_rejects_short_context():

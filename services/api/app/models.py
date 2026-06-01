@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 Horizon = Literal["1D", "1W", "1M"]
 Stance = Literal["bullish", "neutral", "bearish"]
 AssetType = Literal["stock", "crypto"]
+SignalDirection = Literal["bullish", "neutral", "bearish"]
 
 
 class Candle(BaseModel):
@@ -43,6 +44,33 @@ class ForecastResponse(BaseModel):
     providerStatus: str | None = None
     fallbackReason: str | None = None
     lookback: int | None = Field(default=None, ge=0)
+    signalScore: float | None = Field(default=None, ge=-100, le=100)
+    expectedMovePercent: float | None = None
+    riskReward: float | None = Field(default=None, ge=0)
+
+
+class SignalComponent(BaseModel):
+    label: str
+    value: str
+    score: float = Field(ge=-100, le=100)
+    detail: str
+
+
+class SignalResponse(BaseModel):
+    symbol: str
+    generatedAt: str
+    horizon: Horizon
+    signal: SignalDirection
+    score: float = Field(ge=-100, le=100)
+    confidence: float = Field(ge=0, le=1)
+    expectedMovePercent: float
+    riskReward: float = Field(ge=0)
+    stopLossPercent: float = Field(ge=0)
+    takeProfitPercent: float = Field(ge=0)
+    volatilityPercent: float = Field(ge=0)
+    components: list[SignalComponent]
+    summary: str
+    notFinancialAdvice: str
 
 
 class ForecastRequest(BaseModel):

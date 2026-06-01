@@ -143,8 +143,14 @@ FinSight includes a Kronos-ready forecast flow on each symbol page:
 
 1. Open a symbol such as `/symbol/NVDA`.
 2. Choose `1D`, `1W`, or `1M`.
-3. Tap **Analyze with Kronos**.
-4. Review the forecast overlay, model card, lookback, provider status, and backtest metrics.
+3. Review the **AI Signal Quality** card for trend, momentum, moving-average structure, volume confirmation, volatility, expected move, and risk/reward.
+4. Tap **Analyze with Kronos**.
+5. Review the forecast overlay, model card, lookback, provider status, signal score, risk/reward, and backtest metrics.
+
+The stronger output now comes from two layers:
+
+- Kronos predicts a future K-line scenario from up to 512 recent candles.
+- FinSight wraps that output with market-context scoring using SMA20/SMA50, RSI, MACD, ATR-style volatility, volume ratio, expected move, and risk/reward.
 
 The public web app uses the hosted Hugging Face API by default for real market candles. Forecast code still has a clearly labeled local fallback for API outages:
 
@@ -175,7 +181,20 @@ In another terminal, point the web app at the API:
 EXPO_PUBLIC_API_BASE_URL=http://127.0.0.1:8000 npm run web
 ```
 
-The adapter sends up to the latest 512 candles to Kronos and falls back safely if model imports or downloads fail.
+The adapter sends up to the latest 512 candles to Kronos and falls back safely if model imports or downloads fail. It also caches the loaded Kronos predictor after the first request, uses business-day future timestamps for stocks, daily timestamps for crypto, and defaults to `KRONOS_SAMPLE_COUNT=3` for smoother scenario output.
+
+Useful API checks:
+
+```bash
+curl http://127.0.0.1:8000/signals/NVDA?horizon=1W
+```
+
+For Kronos, use the app button after candles are loaded, or send a real candle payload to:
+
+```bash
+POST http://127.0.0.1:8000/forecast/kronos
+```
+
 
 ## Portfolio Story
 
@@ -196,12 +215,12 @@ See [docs/PORTFOLIO.md](docs/PORTFOLIO.md) for CV bullets, engineering highlight
 - Browser-local persistence for posts, likes, bookmarks, comments, watchlists, chats, and auth state.
 - Supabase adapter and SQL/RLS schema ready for real email auth and persistent social data.
 - FastAPI forecast service with cache-shaped market data endpoints, explainable scenarios, and backtest metrics.
-- Kronos-ready Forecast Lab with backend inference boundary and clearly labeled fallback behavior.
+- Kronos Forecast Lab with cached backend inference, signal quality scoring, expected move, and risk/reward metadata.
 - Vercel SPA deployment with deep-link refresh support.
 
 ## What I Would Scale Next
 
 - Add a hosted API worker and scheduled market-data ingestion.
-- Replace the baseline forecaster with a Kronos/TimesFM/Chronos adapter and model comparison dashboard.
+- Add walk-forward model comparison for Kronos, TimesFM, Chronos, and simple statistical baselines.
 - Add Supabase Realtime for comments, chat, notifications, and feed updates.
 - Add CI preview deployments and a visual regression pass for mobile Safari.

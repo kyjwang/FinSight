@@ -5,12 +5,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { ThesisCard } from "@/components/ThesisCard";
 import { communitySentiment } from "@/lib/analytics";
-import { fetchCandles, requestKronosForecast, searchAssets } from "@/lib/api";
+import { fetchCandles, requestKronosForecast, requestMarketSignal, searchAssets } from "@/lib/api";
 import { assetFromSymbol, assetWithCandleStats, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
 import { compactNumber, formatCurrency, formatPercent } from "@/lib/format";
 import { useAppState } from "@/state/AppState";
-import { Asset, Candle, Forecast, Horizon } from "@/types";
+import { Asset, Candle, Forecast, Horizon, MarketSignal } from "@/types";
 
 const horizons: Horizon[] = ["1D", "1W", "1M"];
 const chartRanges = ["1M", "3M", "6M", "1Y"] as const;
@@ -28,6 +28,9 @@ export function SymbolScreen() {
   const [kronosForecast, setKronosForecast] = useState<Forecast | null>(null);
   const [kronosLoading, setKronosLoading] = useState(false);
   const [kronosError, setKronosError] = useState("");
+  const [marketSignal, setMarketSignal] = useState<MarketSignal | null>(null);
+  const [signalLoading, setSignalLoading] = useState(false);
+  const [signalError, setSignalError] = useState("");
   const posts = state.posts.filter((post) => post.asset.symbol === asset.symbol);
   const fallbackPosts = posts.length > 0 ? posts : state.posts.slice(0, 2);
   const sentiment = communitySentiment(fallbackPosts);
@@ -40,6 +43,9 @@ export function SymbolScreen() {
     async function loadSymbol() {
       setMarketStatus("Loading real candles from the API...");
       setKronosForecast(null);
+      setMarketSignal(null);
+      setSignalError("");
+      setSignalLoading(true);
       const [resolvedAsset] = await searchAssets(normalizedSymbol, [assetFromSymbol(normalizedSymbol)]);
       const resolvedCandles = await fetchCandles(normalizedSymbol, [], chartRange);
 
@@ -52,19 +58,27 @@ export function SymbolScreen() {
           ? `Loaded ${resolvedCandles.length} real candles from the API.`
           : "No real candles loaded. Start FastAPI with yfinance installed, then refresh this symbol."
       );
+
+      const signal = await requestMarketSignal(normalizedSymbol, resolvedCandles, kronosHorizon);
+      if (!active) return;
+      setMarketSignal(signal);
+      setSignalError(signal ? "" : "Need at least 30 candles to calculate signal quality.");
+      setSignalLoading(false);
     }
 
     loadSymbol().catch(() => {
       if (active) {
         setCandles([]);
         setMarketStatus("Market data request failed. Check that the FastAPI backend is running.");
+        setSignalLoading(false);
+        setSignalError("Signal engine could not load because market data failed.");
       }
     });
 
     return () => {
       active = false;
     };
-  }, [normalizedSymbol, chartRange]);
+  }, [normalizedSymbol, chartRange, kronosHorizon]);
 
   async function analyzeWithKronos() {
     if (candles.length < 8) {
@@ -133,6 +147,7 @@ export function SymbolScreen() {
               <RecentCandles candles={candles.slice(-6).reverse()} />
             </>
           ) : null}
+          <SignalQualityCard signal={marketSignal} loading={signalLoading} error={signalError} />
           <Pressable
             style={[styles.watchButton, watching && styles.watchButtonActive]}
             onPress={() => dispatch({ type: "toggleWatchlist", symbol: asset.symbol })}
@@ -186,6 +201,7 @@ export function SymbolScreen() {
                   <ModelMetric label="Provider" value={kronosForecast.provider ?? "baseline"} />
                   <ModelMetric label="Status" value={kronosForecast.providerStatus ?? "ready"} />
                   <ModelMetric label="Lookback" value={`${kronosForecast.lookback ?? candles.length}`} />
+                  <ModelMetric label="Signal" value={scoreText(kronosForecast.signalScore)} />
                 </View>
                 <ForecastStats candles={candles} forecast={kronosForecast} />
                 <Text style={styles.modelCopy}>
@@ -222,6 +238,81 @@ export function SymbolScreen() {
   );
 }
 
+function SignalQualityCard({ signal, loading, error }: { signal: MarketSignal | null; loading: boolean; error: string }) {
+  if (loading) {
+    return (
+      <View style={styles.signalCard}>
+        <Text style={styles.signalEyebrow}>AI Signal Quality</Text>
+        <Text style={styles.signalTitle}>Calculating market context...</Text>
+      </View>
+    );
+  }
+
+  if (!signal) {
+    return (
+      <View style={styles.signalCard}>
+        <Text style={styles.signalEyebrow}>AI Signal Quality</Text>
+        <Text style={styles.signalTitle}>Signal unavailable</Text>
+        <Text style={styles.signalCopy}>{error || "Load more real candles to calculate technical confirmation."}</Text>
+      </View>
+    );
+  }
+
+  const tone = signal.signal === "bullish" ? "green" : signal.signal === "bearish" ? "red" : "neutral";
+
+  return (
+    <View style={styles.signalCard}>
+      <View style={styles.signalHeader}>
+        <View>
+          <Text style={styles.signalEyebrow}>AI Signal Quality</Text>
+          <Text style={styles.signalTitle}>{signal.signal.toUpperCase()} · {scoreText(signal.score)}</Text>
+        </View>
+        <View style={[styles.signalBadge, tone === "green" && styles.signalBadgeGreen, tone === "red" && styles.signalBadgeRed]}>
+          <Text style={[styles.signalBadgeText, tone === "green" && styles.signalBadgeTextGreen, tone === "red" && styles.signalBadgeTextRed]}>
+            {Math.round(signal.confidence * 100)}%
+          </Text>
+        </View>
+      </View>
+      <Text style={styles.signalCopy}>{signal.summary}</Text>
+      <View style={styles.signalMetricGrid}>
+        <SignalMetric label="Expected move" value={formatPercent(signal.expectedMovePercent)} tone={signal.expectedMovePercent >= 0 ? "green" : "red"} />
+        <SignalMetric label="Risk/reward" value={`${signal.riskReward.toFixed(2)}x`} />
+        <SignalMetric label="Stop / target" value={`${formatPercent(signal.stopLossPercent)} / ${formatPercent(signal.takeProfitPercent)}`} />
+        <SignalMetric label="Volatility" value={formatPercent(signal.volatilityPercent)} />
+      </View>
+      <View style={styles.signalComponents}>
+        {signal.components.map((component) => (
+          <View key={component.label} style={styles.signalComponentRow}>
+            <View style={styles.signalComponentTop}>
+              <Text style={styles.signalComponentLabel}>{component.label}</Text>
+              <Text style={[styles.signalComponentScore, component.score >= 0 ? styles.metricGreen : styles.metricRed]}>
+                {scoreText(component.score)}
+              </Text>
+            </View>
+            <Text style={styles.signalComponentValue}>{component.value}</Text>
+            <Text style={styles.signalComponentDetail}>{component.detail}</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={styles.disclaimer}>{signal.notFinancialAdvice}</Text>
+    </View>
+  );
+}
+
+function SignalMetric({ label, value, tone }: { label: string; value: string; tone?: "green" | "red" }) {
+  return (
+    <View style={styles.signalMetric}>
+      <Text style={styles.signalMetricLabel}>{label}</Text>
+      <Text style={[styles.signalMetricValue, tone === "green" && styles.metricGreen, tone === "red" && styles.metricRed]}>{value}</Text>
+    </View>
+  );
+}
+
+function scoreText(value?: number | null): string {
+  if (typeof value !== "number") return "Pending";
+  return `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+}
+
 function Sentiment({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <View style={styles.sentiment}>
@@ -251,6 +342,7 @@ function ForecastStats({ candles, forecast }: { candles: Candle[]; forecast: For
         <ForecastMetric label="Target close" value={formatCurrency(stats.finalMean)} />
         <ForecastMetric label="Projected move" value={formatPercent(stats.projectedMove)} tone={stats.projectedMove >= 0 ? "green" : "red"} />
         <ForecastMetric label="Confidence band" value={`${formatCurrency(stats.finalLower)} - ${formatCurrency(stats.finalUpper)}`} />
+        <ForecastMetric label="Risk/reward" value={forecast.riskReward ? `${forecast.riskReward.toFixed(2)}x` : "Pending"} />
       </View>
       <View style={styles.forecastTable}>
         <View style={styles.forecastRowHeader}>
@@ -719,6 +811,118 @@ const styles = StyleSheet.create({
   sentimentValue: {
     color: colors.ink,
     fontSize: 15,
+    fontWeight: "900",
+    marginTop: 2
+  },
+
+  signalBadge: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    minWidth: 58,
+    paddingHorizontal: 10,
+    paddingVertical: 8
+  },
+  signalBadgeGreen: {
+    backgroundColor: "#E8F8EF"
+  },
+  signalBadgeRed: {
+    backgroundColor: "#FDECEC"
+  },
+  signalBadgeText: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  signalBadgeTextGreen: {
+    color: colors.green
+  },
+  signalBadgeTextRed: {
+    color: colors.red
+  },
+  signalCard: {
+    backgroundColor: "#F8FBFA",
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 10,
+    padding: 12
+  },
+  signalComponentDetail: {
+    color: colors.muted,
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 3
+  },
+  signalComponentLabel: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  signalComponentRow: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    paddingTop: 8
+  },
+  signalComponentScore: {
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  signalComponentTop: {
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  signalComponentValue: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "800",
+    marginTop: 2
+  },
+  signalComponents: {
+    gap: 8
+  },
+  signalCopy: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18
+  },
+  signalEyebrow: {
+    color: colors.green,
+    fontSize: 11,
+    fontWeight: "900"
+  },
+  signalHeader: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  signalMetric: {
+    backgroundColor: colors.surface,
+    borderRadius: 8,
+    flexBasis: "47%",
+    flexGrow: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 9
+  },
+  signalMetricGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  signalMetricLabel: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: "800"
+  },
+  signalMetricValue: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  signalTitle: {
+    color: colors.ink,
+    fontSize: 18,
     fontWeight: "900",
     marginTop: 2
   },
