@@ -163,7 +163,7 @@ Real Kronos inference runs in FastAPI, not in the browser. To enable it locally,
 ```bash
 KRONOS_ENABLED=true
 KRONOS_REPO_PATH=/absolute/path/to/Kronos
-KRONOS_MODEL=NeoQuasar/Kronos-small
+KRONOS_MODEL=NeoQuasar/Kronos-base
 KRONOS_TOKENIZER=NeoQuasar/Kronos-Tokenizer-base
 KRONOS_DEVICE=cpu
 ```

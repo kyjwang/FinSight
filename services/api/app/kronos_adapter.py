@@ -58,7 +58,7 @@ def run_real_kronos(symbol: str, candles: list[Candle], horizon: Horizon, repo_p
 
     pandas = importlib.import_module("pandas")
     tokenizer_name = os.getenv("KRONOS_TOKENIZER", "NeoQuasar/Kronos-Tokenizer-base")
-    model_name = os.getenv("KRONOS_MODEL", "NeoQuasar/Kronos-small")
+    model_name = os.getenv("KRONOS_MODEL", "NeoQuasar/Kronos-base")
     device = os.getenv("KRONOS_DEVICE", "cpu")
     sample_count = int(os.getenv("KRONOS_SAMPLE_COUNT", "3"))
 
