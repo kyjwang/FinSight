@@ -1,7 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
-import { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Bell, Bookmark, ChevronDown, RefreshCw, ShieldCheck, TrendingUp } from "lucide-react-native";
 import { CandlestickChart } from "@/components/CandlestickChart";
 import { ThesisCard } from "@/components/ThesisCard";
 import { communitySentiment } from "@/lib/analytics";
@@ -9,12 +10,15 @@ import { fetchCandles, requestKronosForecast, requestMarketSignal, searchAssets 
 import { assetFromSymbol, assetWithCandleStats, normalizeSymbol } from "@/lib/symbols";
 import { colors } from "@/lib/theme";
 import { compactNumber, formatCurrency, formatPercent } from "@/lib/format";
+import { buildTradingSnapshot, TradingSnapshot } from "@/lib/tradingMetrics";
 import { useAppState } from "@/state/AppState";
 import { Asset, Candle, Forecast, Horizon, MarketSignal } from "@/types";
 
 const horizons: Horizon[] = ["1D", "1W", "1M"];
 const chartRanges = ["1M", "3M", "6M", "1Y"] as const;
 type ChartRange = (typeof chartRanges)[number];
+type OrderSide = "buy" | "sell";
+type OrderType = "Market" | "Limit" | "Stop";
 
 export function SymbolScreen() {
   const { symbol } = useLocalSearchParams<{ symbol: string }>();
@@ -24,6 +28,7 @@ export function SymbolScreen() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [chartRange, setChartRange] = useState<ChartRange>("6M");
   const [marketStatus, setMarketStatus] = useState("Loading real candles from the API...");
+  const [refreshNonce, setRefreshNonce] = useState(0);
   const [kronosHorizon, setKronosHorizon] = useState<Horizon>("1W");
   const [kronosForecast, setKronosForecast] = useState<Forecast | null>(null);
   const [kronosLoading, setKronosLoading] = useState(false);
@@ -31,11 +36,16 @@ export function SymbolScreen() {
   const [marketSignal, setMarketSignal] = useState<MarketSignal | null>(null);
   const [signalLoading, setSignalLoading] = useState(false);
   const [signalError, setSignalError] = useState("");
+  const [orderSide, setOrderSide] = useState<OrderSide>("buy");
+  const [orderType, setOrderType] = useState<OrderType>("Limit");
+  const [quantity, setQuantity] = useState("10");
   const posts = state.posts.filter((post) => post.asset.symbol === asset.symbol);
   const fallbackPosts = posts.length > 0 ? posts : state.posts.slice(0, 2);
   const sentiment = communitySentiment(fallbackPosts);
   const watching = state.watchlistSymbols.includes(asset.symbol);
   const marketStats = buildMarketStats(candles);
+  const snapshot = useMemo(() => buildTradingSnapshot(asset, candles), [asset, candles]);
+  const orderQuantity = parseOrderQuantity(quantity);
 
   useEffect(() => {
     let active = true;
@@ -78,7 +88,7 @@ export function SymbolScreen() {
     return () => {
       active = false;
     };
-  }, [normalizedSymbol, chartRange, kronosHorizon]);
+  }, [normalizedSymbol, chartRange, kronosHorizon, refreshNonce]);
 
   async function analyzeWithKronos() {
     if (candles.length < 8) {
@@ -102,119 +112,112 @@ export function SymbolScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.hero}>
-          <View style={styles.heroTop}>
-            <View>
-              <Text style={styles.symbol}>{asset.symbol}</Text>
-              <Text style={styles.name}>{asset.name} · {asset.exchange}</Text>
-            </View>
-            <View style={styles.priceBlock}>
-              <Text style={styles.price}>{formatCurrency(asset.price)}</Text>
-              <Text style={[styles.change, { color: asset.changePercent >= 0 ? colors.green : colors.red }]}>
-                {formatPercent(asset.changePercent)}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.rangeRow}>
-            {chartRanges.map((range) => (
-              <Pressable
-                key={range}
-                style={[styles.rangeButton, range === chartRange && styles.rangeButtonActive]}
-                onPress={() => setChartRange(range)}
-              >
-                <Text style={[styles.rangeText, range === chartRange && styles.rangeTextActive]}>{range}</Text>
-              </Pressable>
-            ))}
-          </View>
-          <CandlestickChart candles={candles} height={230} />
-          <Text style={styles.marketStatus}>{marketStatus}</Text>
-          {marketStats ? (
-            <>
-              <View style={styles.statGrid}>
-                <MarketMetric label="Open" value={formatCurrency(marketStats.latest.open)} />
-                <MarketMetric label="High" value={formatCurrency(marketStats.latest.high)} tone="green" />
-                <MarketMetric label="Low" value={formatCurrency(marketStats.latest.low)} tone="red" />
-                <MarketMetric label="Close" value={formatCurrency(marketStats.latest.close)} />
-                <MarketMetric label="Volume" value={compactNumber(marketStats.latest.volume)} />
-                <MarketMetric label="Avg Vol" value={compactNumber(marketStats.averageVolume)} />
-              </View>
-              <View style={styles.marketTape}>
-                <TapeItem label="Latest candle" value={marketStats.latest.time} />
-                <TapeItem label="Previous close" value={formatCurrency(marketStats.previousClose)} />
-                <TapeItem label={`${chartRange} range`} value={`${formatCurrency(marketStats.rangeLow)} - ${formatCurrency(marketStats.rangeHigh)}`} />
-                <TapeItem label="Total traded" value={compactNumber(marketStats.totalVolume)} />
-              </View>
-              <RecentCandles candles={candles.slice(-6).reverse()} />
-            </>
-          ) : null}
-          <SignalQualityCard signal={marketSignal} loading={signalLoading} error={signalError} />
-          <Pressable
-            style={[styles.watchButton, watching && styles.watchButtonActive]}
-            onPress={() => dispatch({ type: "toggleWatchlist", symbol: asset.symbol })}
-          >
-            <Text style={[styles.watchText, watching && styles.watchTextActive]}>
-              {watching ? "Remove from watchlist" : "Add to watchlist"}
-            </Text>
-          </Pressable>
-          <View style={styles.sentimentRow}>
-            <Sentiment label="Bullish" value={sentiment.bullish} color={colors.green} />
-            <Sentiment label="Neutral" value={sentiment.neutral} color={colors.blue} />
-            <Sentiment label="Bearish" value={sentiment.bearish} color={colors.red} />
-          </View>
-        </View>
+        <TradingHeader
+          asset={asset}
+          snapshot={snapshot}
+          watching={watching}
+          onRefresh={() => setRefreshNonce((value) => value + 1)}
+          onToggleWatchlist={() => dispatch({ type: "toggleWatchlist", symbol: asset.symbol })}
+        />
 
-        <View style={styles.kronosPanel}>
-          <View>
-            <Text style={styles.kronosEyebrow}>Kronos Forecast Lab</Text>
-            <Text style={styles.kronosTitle}>Analyze future K-lines</Text>
-            <Text style={styles.kronosCopy}>
-              Sends up to 512 real historical candles to the FastAPI Kronos adapter. If Kronos is unavailable, FinSight
-              marks the result as a baseline fallback.
-            </Text>
-          </View>
-
-          <View style={styles.horizonRow}>
-            {horizons.map((item) => (
-              <Pressable
-                key={item}
-                style={[styles.horizonButton, item === kronosHorizon && styles.horizonButtonActive]}
-                onPress={() => setKronosHorizon(item)}
-              >
-                <Text style={[styles.horizonText, item === kronosHorizon && styles.horizonTextActive]}>{item}</Text>
-              </Pressable>
-            ))}
-          </View>
-
-          <Pressable style={[styles.kronosButton, candles.length < 8 && styles.disabledButton]} onPress={analyzeWithKronos} disabled={kronosLoading || candles.length < 8}>
-            <Text style={styles.kronosButtonText}>{kronosLoading ? "Analyzing..." : "Analyze with Kronos"}</Text>
-          </Pressable>
-
-          {kronosError ? <Text style={styles.kronosError}>{kronosError}</Text> : null}
-
-          {kronosForecast && (
-            <View style={styles.kronosResult}>
-              <CandlestickChart candles={candles} forecast={kronosForecast} />
-              <View style={styles.modelCard}>
-                <Text style={styles.modelName}>{kronosForecast.modelName}</Text>
-                <Text style={styles.modelCopy}>{kronosForecast.summary}</Text>
-                <View style={styles.modelGrid}>
-                  <ModelMetric label="Provider" value={kronosForecast.provider ?? "baseline"} />
-                  <ModelMetric label="Status" value={kronosForecast.providerStatus ?? "ready"} />
-                  <ModelMetric label="Lookback" value={`${kronosForecast.lookback ?? candles.length}`} />
-                  <ModelMetric label="Signal" value={scoreText(kronosForecast.signalScore)} />
+        <View style={styles.workspace}>
+          <View style={styles.mainColumn}>
+            <View style={styles.chartPanel}>
+              <View style={styles.panelToolbar}>
+                <View>
+                  <Text style={styles.panelEyebrow}>Advanced chart</Text>
+                  <Text style={styles.panelTitle}>{asset.symbol} candles</Text>
                 </View>
-                <ForecastStats candles={candles} forecast={kronosForecast} />
-                <Text style={styles.modelCopy}>
-                  Backtest: {Math.round(kronosForecast.backtest.directionAccuracy * 100)}% direction accuracy ·{" "}
-                  {kronosForecast.backtest.meanAbsoluteError}% MAE.
-                </Text>
-                {kronosForecast.fallbackReason ? (
-                  <Text style={styles.fallbackReason}>{kronosForecast.fallbackReason}</Text>
-                ) : null}
-                <Text style={styles.disclaimer}>Scenario analysis only. Not financial advice.</Text>
+                <View style={styles.rangeRow}>
+                  {chartRanges.map((range) => (
+                    <Pressable
+                      key={range}
+                      style={[styles.rangeButton, range === chartRange && styles.rangeButtonActive]}
+                      onPress={() => setChartRange(range)}
+                    >
+                      <Text style={[styles.rangeText, range === chartRange && styles.rangeTextActive]}>{range}</Text>
+                    </Pressable>
+                  ))}
+                </View>
               </View>
+              <CandlestickChart candles={candles} height={310} />
+              <Text style={styles.marketStatus}>{marketStatus}</Text>
+              <MarketStatsPanel marketStats={marketStats} snapshot={snapshot} chartRange={chartRange} />
+              <SignalQualityCard signal={marketSignal} loading={signalLoading} error={signalError} />
             </View>
-          )}
+
+            <View style={styles.kronosPanel}>
+              <View>
+                <Text style={styles.kronosEyebrow}>Kronos Forecast Lab</Text>
+                <Text style={styles.kronosTitle}>Analyze future K-lines</Text>
+                <Text style={styles.kronosCopy}>
+                  Sends up to 512 real historical candles to the FastAPI Kronos adapter. If Kronos is unavailable, FinSight
+                  marks the result as a baseline fallback.
+                </Text>
+              </View>
+
+              <View style={styles.horizonRow}>
+                {horizons.map((item) => (
+                  <Pressable
+                    key={item}
+                    style={[styles.horizonButton, item === kronosHorizon && styles.horizonButtonActive]}
+                    onPress={() => setKronosHorizon(item)}
+                  >
+                    <Text style={[styles.horizonText, item === kronosHorizon && styles.horizonTextActive]}>{item}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Pressable style={[styles.kronosButton, candles.length < 8 && styles.disabledButton]} onPress={analyzeWithKronos} disabled={kronosLoading || candles.length < 8}>
+                <Text style={styles.kronosButtonText}>{kronosLoading ? "Analyzing..." : "Analyze with Kronos"}</Text>
+              </Pressable>
+
+              {kronosError ? <Text style={styles.kronosError}>{kronosError}</Text> : null}
+
+              {kronosForecast && (
+                <View style={styles.kronosResult}>
+                  <CandlestickChart candles={candles} forecast={kronosForecast} />
+                  <View style={styles.modelCard}>
+                    <Text style={styles.modelName}>{kronosForecast.modelName}</Text>
+                    <Text style={styles.modelCopy}>{kronosForecast.summary}</Text>
+                    <View style={styles.modelGrid}>
+                      <ModelMetric label="Provider" value={kronosForecast.provider ?? "baseline"} />
+                      <ModelMetric label="Status" value={kronosForecast.providerStatus ?? "ready"} />
+                      <ModelMetric label="Lookback" value={`${kronosForecast.lookback ?? candles.length}`} />
+                      <ModelMetric label="Signal" value={scoreText(kronosForecast.signalScore)} />
+                    </View>
+                    <ForecastStats candles={candles} forecast={kronosForecast} />
+                    <Text style={styles.modelCopy}>
+                      Backtest: {Math.round(kronosForecast.backtest.directionAccuracy * 100)}% direction accuracy ·{" "}
+                      {kronosForecast.backtest.meanAbsoluteError}% MAE.
+                    </Text>
+                    {kronosForecast.fallbackReason ? (
+                      <Text style={styles.fallbackReason}>{kronosForecast.fallbackReason}</Text>
+                    ) : null}
+                    <Text style={styles.disclaimer}>Scenario analysis only. Not financial advice.</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.sideColumn}>
+            <OrderTicket
+              asset={asset}
+              snapshot={snapshot}
+              orderSide={orderSide}
+              orderType={orderType}
+              quantity={quantity}
+              orderQuantity={orderQuantity}
+              onChangeSide={setOrderSide}
+              onChangeOrderType={setOrderType}
+              onChangeQuantity={setQuantity}
+            />
+            <MarketDepth snapshot={snapshot} />
+            <TradeTape trades={snapshot.trades} />
+            <AccountPanel asset={asset} snapshot={snapshot} orderQuantity={orderQuantity} />
+            <SentimentPanel sentiment={sentiment} />
+          </View>
         </View>
 
         <Text style={styles.sectionTitle}>Community theses</Text>
@@ -235,6 +238,288 @@ export function SymbolScreen() {
         ))}
       </ScrollView>
     </SafeAreaView>
+  );
+}
+
+function TradingHeader({
+  asset,
+  snapshot,
+  watching,
+  onRefresh,
+  onToggleWatchlist
+}: {
+  asset: Asset;
+  snapshot: TradingSnapshot;
+  watching: boolean;
+  onRefresh: () => void;
+  onToggleWatchlist: () => void;
+}) {
+  const changeTone = snapshot.change >= 0 ? "green" : "red";
+
+  return (
+    <View style={styles.tradingHeader}>
+      <View style={styles.headerIdentity}>
+        <View>
+          <Text style={styles.headerKicker}>Trading workstation</Text>
+          <Text style={styles.symbol}>{asset.symbol}</Text>
+          <Text style={styles.name}>{asset.name} · {asset.exchange} · Paper trading</Text>
+        </View>
+        <View style={styles.headerActions}>
+          <Pressable style={styles.iconButton} onPress={onRefresh}>
+            <RefreshCw size={18} color={colors.ink} />
+          </Pressable>
+          <Pressable style={[styles.iconButton, watching && styles.iconButtonActive]} onPress={onToggleWatchlist}>
+            <Bookmark size={18} color={watching ? colors.surface : colors.ink} fill={watching ? colors.surface : "none"} />
+          </Pressable>
+          <View style={styles.iconButton}>
+            <Bell size={18} color={colors.ink} />
+          </View>
+        </View>
+      </View>
+
+      <View style={styles.quoteGrid}>
+        <View style={styles.quotePrimary}>
+          <Text style={styles.quoteLabel}>Last</Text>
+          <Text style={styles.quotePrice}>{formatCurrency(snapshot.lastPrice)}</Text>
+          <Text style={[styles.quoteChange, changeTone === "green" ? styles.metricGreen : styles.metricRed]}>
+            {snapshot.change >= 0 ? "+" : ""}{formatCurrency(snapshot.change)} · {formatPercent(snapshot.changePercent)}
+          </Text>
+        </View>
+        <QuoteCell label="Bid" value={formatCurrency(snapshot.bid)} tone="green" />
+        <QuoteCell label="Ask" value={formatCurrency(snapshot.ask)} tone="red" />
+        <QuoteCell label="Spread" value={`${formatCurrency(snapshot.spread)} · ${snapshot.spreadPercent.toFixed(3)}%`} />
+        <QuoteCell label="VWAP" value={formatCurrency(snapshot.vwap)} />
+      </View>
+    </View>
+  );
+}
+
+function QuoteCell({ label, value, tone }: { label: string; value: string; tone?: "green" | "red" }) {
+  return (
+    <View style={styles.quoteCell}>
+      <Text style={styles.quoteLabel}>{label}</Text>
+      <Text style={[styles.quoteValue, tone === "green" && styles.metricGreen, tone === "red" && styles.metricRed]}>{value}</Text>
+    </View>
+  );
+}
+
+function MarketStatsPanel({
+  marketStats,
+  snapshot,
+  chartRange
+}: {
+  marketStats: ReturnType<typeof buildMarketStats>;
+  snapshot: TradingSnapshot;
+  chartRange: ChartRange;
+}) {
+  if (!marketStats) {
+    return (
+      <View style={styles.panel}>
+        <Text style={styles.panelTitle}>Market stats</Text>
+        <Text style={styles.panelCopy}>Load candles to populate live range, volume, and tape metrics.</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.statsRail}>
+      <MarketMetric label="Open" value={formatCurrency(marketStats.latest.open)} />
+      <MarketMetric label="High" value={formatCurrency(marketStats.latest.high)} tone="green" />
+      <MarketMetric label="Low" value={formatCurrency(marketStats.latest.low)} tone="red" />
+      <MarketMetric label="Close" value={formatCurrency(marketStats.latest.close)} />
+      <MarketMetric label="Volume" value={compactNumber(marketStats.latest.volume)} />
+      <MarketMetric label="Avg Vol" value={compactNumber(snapshot.averageVolume)} />
+      <MarketMetric label={`${chartRange} high`} value={formatCurrency(marketStats.rangeHigh)} tone="green" />
+      <MarketMetric label={`${chartRange} low`} value={formatCurrency(marketStats.rangeLow)} tone="red" />
+    </View>
+  );
+}
+
+function OrderTicket({
+  asset,
+  snapshot,
+  orderSide,
+  orderType,
+  quantity,
+  orderQuantity,
+  onChangeSide,
+  onChangeOrderType,
+  onChangeQuantity
+}: {
+  asset: Asset;
+  snapshot: TradingSnapshot;
+  orderSide: OrderSide;
+  orderType: OrderType;
+  quantity: string;
+  orderQuantity: number;
+  onChangeSide: (side: OrderSide) => void;
+  onChangeOrderType: (type: OrderType) => void;
+  onChangeQuantity: (quantity: string) => void;
+}) {
+  const executionPrice = orderSide === "buy" ? snapshot.ask : snapshot.bid;
+  const notional = executionPrice * orderQuantity;
+
+  return (
+    <View style={styles.panel}>
+      <View style={styles.panelHeaderRow}>
+        <View>
+          <Text style={styles.panelEyebrow}>Paper order</Text>
+          <Text style={styles.panelTitle}>{asset.symbol}</Text>
+        </View>
+        <ShieldCheck size={19} color={colors.green} />
+      </View>
+
+      <View style={styles.sideToggle}>
+        <Pressable
+          style={[styles.sideButton, orderSide === "buy" && styles.buyButtonActive]}
+          onPress={() => onChangeSide("buy")}
+        >
+          <Text style={[styles.sideButtonText, orderSide === "buy" && styles.sideButtonTextActive]}>Buy</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.sideButton, orderSide === "sell" && styles.sellButtonActive]}
+          onPress={() => onChangeSide("sell")}
+        >
+          <Text style={[styles.sideButtonText, orderSide === "sell" && styles.sideButtonTextActive]}>Sell</Text>
+        </Pressable>
+      </View>
+
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Order type</Text>
+        <View style={styles.orderTypeRow}>
+          {(["Market", "Limit", "Stop"] as OrderType[]).map((type) => (
+            <Pressable key={type} style={[styles.orderTypeButton, orderType === type && styles.orderTypeActive]} onPress={() => onChangeOrderType(type)}>
+              <Text style={[styles.orderTypeText, orderType === type && styles.orderTypeTextActive]}>{type}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      <View style={styles.formRow}>
+        <Text style={styles.formLabel}>Quantity</Text>
+        <TextInput
+          value={quantity}
+          onChangeText={(value) => onChangeQuantity(value.replace(/[^0-9.]/g, ""))}
+          keyboardType="decimal-pad"
+          style={styles.orderInput}
+          placeholder="0"
+          placeholderTextColor={colors.muted}
+        />
+      </View>
+
+      <View style={styles.orderSummary}>
+        <SummaryRow label="Route" value="Smart" />
+        <SummaryRow label={orderType === "Market" ? "Est. price" : "Limit price"} value={formatCurrency(executionPrice)} />
+        <SummaryRow label="Est. notional" value={formatCurrency(notional)} />
+        <SummaryRow label="Buying power" value={formatCurrency(25000)} />
+      </View>
+
+      <Pressable style={[styles.reviewButton, orderSide === "sell" && styles.reviewSellButton]}>
+        <TrendingUp size={16} color={colors.surface} />
+        <Text style={styles.reviewButtonText}>Review paper order</Text>
+      </Pressable>
+      <Text style={styles.panelFootnote}>Order ticket is simulated for research workflows only.</Text>
+    </View>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={styles.summaryValue}>{value}</Text>
+    </View>
+  );
+}
+
+function MarketDepth({ snapshot }: { snapshot: TradingSnapshot }) {
+  const maxTotal = Math.max(...snapshot.depth.bids.map((level) => level.total), ...snapshot.depth.asks.map((level) => level.total), 1);
+
+  return (
+    <View style={styles.panel}>
+      <View style={styles.panelHeaderRow}>
+        <View>
+          <Text style={styles.panelEyebrow}>Level II</Text>
+          <Text style={styles.panelTitle}>Market depth</Text>
+        </View>
+        <ChevronDown size={18} color={colors.muted} />
+      </View>
+      <View style={styles.bookHeader}>
+        <Text style={styles.bookCell}>Bid</Text>
+        <Text style={styles.bookCell}>Size</Text>
+        <Text style={styles.bookCellRight}>Ask</Text>
+      </View>
+      {snapshot.depth.bids.map((bid, index) => {
+        const ask = snapshot.depth.asks[index];
+        return (
+          <View key={`${bid.price}-${ask.price}`} style={styles.bookRow}>
+            <View style={[styles.depthBar, styles.depthBidBar, { width: `${Math.max(8, (bid.total / maxTotal) * 44)}%` }]} />
+            <View style={[styles.depthBar, styles.depthAskBar, { width: `${Math.max(8, (ask.total / maxTotal) * 44)}%` }]} />
+            <Text style={[styles.bookCell, styles.metricGreen]}>{priceText(bid.price)}</Text>
+            <Text style={styles.bookCell}>{compactNumber(bid.size)}</Text>
+            <Text style={[styles.bookCellRight, styles.metricRed]}>{priceText(ask.price)}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function TradeTape({ trades }: { trades: TradingSnapshot["trades"] }) {
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.panelEyebrow}>Time and sales</Text>
+      <Text style={styles.panelTitle}>Recent prints</Text>
+      {trades.length === 0 ? (
+        <Text style={styles.panelCopy}>No trade prints yet.</Text>
+      ) : (
+        <View style={styles.tradeTable}>
+          {trades.slice(0, 6).map((trade) => (
+            <View key={`${trade.time}-${trade.price}`} style={styles.tradeRow}>
+              <Text style={styles.tradeTime}>{shortDate(trade.time)}</Text>
+              <Text style={[styles.tradePrice, trade.side === "buy" ? styles.metricGreen : styles.metricRed]}>{priceText(trade.price)}</Text>
+              <Text style={styles.tradeSize}>{compactNumber(trade.size)}</Text>
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+function AccountPanel({ asset, snapshot, orderQuantity }: { asset: Asset; snapshot: TradingSnapshot; orderQuantity: number }) {
+  const positionSize = Math.max(1, Math.round(orderQuantity || 10));
+  const averageCost = snapshot.vwap || snapshot.lastPrice;
+  const pnl = (snapshot.lastPrice - averageCost) * positionSize;
+
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.panelEyebrow}>Portfolio</Text>
+      <Text style={styles.panelTitle}>Positions and orders</Text>
+      <View style={styles.positionRow}>
+        <Text style={styles.positionSymbol}>{asset.symbol}</Text>
+        <Text style={styles.positionMeta}>{positionSize} sh · avg {formatCurrency(averageCost)}</Text>
+        <Text style={[styles.positionPnl, pnl >= 0 ? styles.metricGreen : styles.metricRed]}>{formatCurrency(pnl)}</Text>
+      </View>
+      <View style={styles.ordersRow}>
+        <Text style={styles.panelCopy}>Open orders</Text>
+        <Text style={styles.orderCount}>0</Text>
+      </View>
+    </View>
+  );
+}
+
+function SentimentPanel({ sentiment }: { sentiment: { bullish: number; neutral: number; bearish: number } }) {
+  return (
+    <View style={styles.panel}>
+      <Text style={styles.panelEyebrow}>Community</Text>
+      <Text style={styles.panelTitle}>Thesis sentiment</Text>
+      <View style={styles.sentimentRow}>
+        <Sentiment label="Bullish" value={sentiment.bullish} color={colors.green} />
+        <Sentiment label="Neutral" value={sentiment.neutral} color={colors.blue} />
+        <Sentiment label="Bearish" value={sentiment.bearish} color={colors.red} />
+      </View>
+    </View>
   );
 }
 
@@ -461,11 +746,48 @@ function priceText(value: number): string {
   return value.toFixed(3);
 }
 
+function parseOrderQuantity(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return parsed;
+}
+
 const styles = StyleSheet.create({
+  accountLine: {
+    flexDirection: "row"
+  },
   bar: {
     borderRadius: 999,
     height: 5,
     marginBottom: 7
+  },
+  bookCell: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    zIndex: 1
+  },
+  bookCellRight: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right",
+    zIndex: 1
+  },
+  bookHeader: {
+    borderBottomColor: colors.border,
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    paddingBottom: 7
+  },
+  bookRow: {
+    flexDirection: "row",
+    minHeight: 28,
+    overflow: "hidden",
+    paddingVertical: 6,
+    position: "relative"
   },
   change: {
     fontWeight: "900"
@@ -503,8 +825,30 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 14,
-    padding: 16,
+    padding: 18,
     paddingBottom: 32
+  },
+  chartPanel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12
+  },
+  depthAskBar: {
+    backgroundColor: "#FBE3E0",
+    right: 0
+  },
+  depthBar: {
+    bottom: 3,
+    opacity: 0.8,
+    position: "absolute",
+    top: 3
+  },
+  depthBidBar: {
+    backgroundColor: "#E0F3E8",
+    left: 0
   },
   disclaimer: {
     color: colors.violet,
@@ -784,17 +1128,226 @@ const styles = StyleSheet.create({
     fontWeight: "900",
     marginBottom: 4
   },
+  formLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  formRow: {
+    gap: 7
+  },
   safeArea: {
     alignSelf: "center",
     backgroundColor: colors.background,
     flex: 1,
-    maxWidth: 430,
+    maxWidth: 1180,
     width: "100%"
+  },
+  headerActions: {
+    flexDirection: "row",
+    gap: 8
+  },
+  headerIdentity: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14,
+    justifyContent: "space-between"
+  },
+  headerKicker: {
+    color: colors.green,
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 0,
+    textTransform: "uppercase"
+  },
+  iconButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    height: 38,
+    justifyContent: "center",
+    width: 38
+  },
+  iconButtonActive: {
+    backgroundColor: colors.charcoal,
+    borderColor: colors.charcoal
+  },
+  mainColumn: {
+    flexBasis: 620,
+    flexGrow: 1,
+    flexShrink: 1,
+    gap: 14,
+    minWidth: 320
   },
   sectionTitle: {
     color: colors.ink,
     fontSize: 20,
     fontWeight: "900"
+  },
+  orderCount: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900"
+  },
+  ordersRow: {
+    alignItems: "center",
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingTop: 10
+  },
+  orderInput: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: "900",
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  orderSummary: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+    padding: 10
+  },
+  orderTypeActive: {
+    backgroundColor: colors.charcoal,
+    borderColor: colors.charcoal
+  },
+  orderTypeButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 8
+  },
+  orderTypeRow: {
+    flexDirection: "row",
+    gap: 6
+  },
+  orderTypeText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "900"
+  },
+  orderTypeTextActive: {
+    color: colors.surface
+  },
+  panel: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 12,
+    padding: 12
+  },
+  panelCopy: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "700",
+    lineHeight: 17
+  },
+  panelEyebrow: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 0,
+    textTransform: "uppercase"
+  },
+  panelFootnote: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "800",
+    lineHeight: 15
+  },
+  panelHeaderRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  panelTitle: {
+    color: colors.ink,
+    fontSize: 18,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  panelToolbar: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    gap: 12,
+    justifyContent: "space-between"
+  },
+  positionMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  positionPnl: {
+    fontSize: 15,
+    fontWeight: "900"
+  },
+  positionRow: {
+    gap: 4
+  },
+  positionSymbol: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900"
+  },
+  quoteCell: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    minWidth: 120,
+    paddingHorizontal: 11,
+    paddingVertical: 10
+  },
+  quoteChange: {
+    fontSize: 13,
+    fontWeight: "900",
+    marginTop: 3
+  },
+  quoteGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8
+  },
+  quoteLabel: {
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase"
+  },
+  quotePrice: {
+    color: colors.ink,
+    fontSize: 30,
+    fontWeight: "900",
+    marginTop: 2
+  },
+  quotePrimary: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexGrow: 1.4,
+    minWidth: 200,
+    paddingHorizontal: 12,
+    paddingVertical: 10
+  },
+  quoteValue: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: "900",
+    marginTop: 4
   },
   sentiment: {
     flex: 1
@@ -813,6 +1366,58 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "900",
     marginTop: 2
+  },
+  sideButton: {
+    alignItems: "center",
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flex: 1,
+    paddingVertical: 10
+  },
+  sideButtonText: {
+    color: colors.muted,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  sideButtonTextActive: {
+    color: colors.surface
+  },
+  sideColumn: {
+    flexBasis: 320,
+    flexGrow: 1,
+    flexShrink: 1,
+    gap: 12,
+    minWidth: 280
+  },
+  sideToggle: {
+    flexDirection: "row",
+    gap: 8
+  },
+  buyButtonActive: {
+    backgroundColor: colors.green,
+    borderColor: colors.green
+  },
+  sellButtonActive: {
+    backgroundColor: colors.red,
+    borderColor: colors.red
+  },
+  reviewButton: {
+    alignItems: "center",
+    backgroundColor: colors.green,
+    borderRadius: 8,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+    paddingVertical: 12
+  },
+  reviewButtonText: {
+    color: colors.surface,
+    fontSize: 14,
+    fontWeight: "900"
+  },
+  reviewSellButton: {
+    backgroundColor: colors.red
   },
 
   signalBadge: {
@@ -931,6 +1536,29 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 8
   },
+  statsRail: {
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    padding: 10
+  },
+  summaryLabel: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between"
+  },
+  summaryValue: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: "900"
+  },
   symbol: {
     color: colors.ink,
     fontSize: 34,
@@ -952,6 +1580,49 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
     textAlign: "right"
+  },
+  tradePrice: {
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "900",
+    textAlign: "right"
+  },
+  tradeRow: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    paddingVertical: 7
+  },
+  tradeSize: {
+    color: colors.ink,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "right"
+  },
+  tradeTable: {
+    marginTop: 2
+  },
+  tradeTime: {
+    color: colors.muted,
+    flex: 1,
+    fontSize: 12,
+    fontWeight: "800"
+  },
+  tradingHeader: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 14,
+    padding: 14
+  },
+  workspace: {
+    alignItems: "flex-start",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 14
   },
   watchButton: {
     alignItems: "center",
